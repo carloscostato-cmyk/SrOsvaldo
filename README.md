@@ -96,7 +96,7 @@ Na prática, o processamento central ocorre por prompt no Gemini, retornando JSO
 
 IA:
 
-- Google Gemini (`gemini-1.5-flash`)
+- Google Gemini (modelo compativel detectado automaticamente)
 
 ## Estrutura do Projeto
 

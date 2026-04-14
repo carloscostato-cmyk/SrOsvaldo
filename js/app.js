@@ -14,6 +14,7 @@ const AppState = {
   applications: [],
   jobCoverLetters: {},
   geminiApiKey: localStorage.getItem('sr_osvaldo_gemini_key') || '',
+  geminiModel: localStorage.getItem('sr_osvaldo_gemini_model') || '',
   geminiApiVerified: false,
 };
 
@@ -23,17 +24,72 @@ if (typeof pdfjsLib !== 'undefined') {
 }
 
 // GEMINI
-const GEMINI_MODEL = 'gemini-1.5-flash';
-const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${k}`;
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODELS_URL = (k) => `${GEMINI_API_BASE}/models?key=${k}`;
+const GEMINI_URL = (model, k) => {
+  const normalizedModel = model.startsWith('models/') ? model : `models/${model}`;
+  return `${GEMINI_API_BASE}/${normalizedModel}:generateContent?key=${k}`;
+};
+
+function pickBestGeminiModel(models) {
+  if (!models.length) return '';
+
+  const preferredOrder = [
+    'models/gemini-2.0-flash',
+    'models/gemini-2.0-flash-lite',
+    'models/gemini-1.5-flash-latest',
+    'models/gemini-1.5-flash',
+    'models/gemini-1.5-pro',
+  ];
+
+  for (const preferred of preferredOrder) {
+    const match = models.find(m => m.name === preferred);
+    if (match) return match.name;
+  }
+
+  return models[0].name || '';
+}
+
+async function resolveGeminiModel(key) {
+  try {
+    const r = await fetch(GEMINI_MODELS_URL(key));
+    if (!r.ok) {
+      const errorText = await r.text();
+      let message = `Erro ${r.status} ao listar modelos Gemini.`;
+      try {
+        const j = JSON.parse(errorText);
+        if (j?.error?.message) message = j.error.message;
+      } catch (e) {}
+      return { ok: false, message };
+    }
+
+    const data = await r.json();
+    const models = (data.models || [])
+      .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'));
+
+    if (!models.length) {
+      return { ok: false, message: 'Nenhum modelo Gemini com generateContent foi encontrado para esta chave.' };
+    }
+
+    const model = pickBestGeminiModel(models);
+    if (!model) {
+      return { ok: false, message: 'Nao foi possivel selecionar um modelo Gemini valido.' };
+    }
+
+    return { ok: true, model };
+  } catch (e) {
+    return { ok: false, message: 'Falha de conexao ao buscar modelos Gemini.' };
+  }
+}
 
 async function callGemini(prompt, isJson = false) {
-  if (!AppState.geminiApiKey || !AppState.geminiApiVerified) return null;
+  if (!AppState.geminiApiKey || !AppState.geminiApiVerified || !AppState.geminiModel) return null;
   try {
     const config = { temperature: 0.7, maxOutputTokens: 8192 };
     if (isJson) {
       config.responseMimeType = "application/json";
     }
-    const r = await fetch(GEMINI_URL(AppState.geminiApiKey), {
+    const r = await fetch(GEMINI_URL(AppState.geminiModel, AppState.geminiApiKey), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contents: [{ parts: [{ text: prompt }] }], 
@@ -56,8 +112,10 @@ async function callGemini(prompt, isJson = false) {
     const msg = String(e?.message || '');
     if (/401|403|api key|permission|invalid/i.test(msg)) {
       AppState.geminiApiKey = '';
+      AppState.geminiModel = '';
       AppState.geminiApiVerified = false;
       localStorage.removeItem('sr_osvaldo_gemini_key');
+      localStorage.removeItem('sr_osvaldo_gemini_model');
       updateApiStatus();
       showToast('Chave Gemini invalida ou expirada. Configure novamente.', 'error');
     }
@@ -95,7 +153,10 @@ function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.r
 
 async function validateGeminiApiKey(key) {
   try {
-    const r = await fetch(GEMINI_URL(key), {
+    const modelResolution = await resolveGeminiModel(key);
+    if (!modelResolution.ok) return modelResolution;
+
+    const r = await fetch(GEMINI_URL(modelResolution.model, key), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -103,7 +164,7 @@ async function validateGeminiApiKey(key) {
         generationConfig: { temperature: 0, maxOutputTokens: 8 },
       }),
     });
-    if (r.ok) return { ok: true };
+    if (r.ok) return { ok: true, model: modelResolution.model };
     const errorText = await r.text();
     let message = `Erro ${r.status} ao validar a chave.`;
     try {
@@ -131,8 +192,10 @@ async function saveApiKey() {
   const validation = await validateGeminiApiKey(k);
   if (!validation.ok) {
     AppState.geminiApiKey = '';
+    AppState.geminiModel = '';
     AppState.geminiApiVerified = false;
     localStorage.removeItem('sr_osvaldo_gemini_key');
+    localStorage.removeItem('sr_osvaldo_gemini_model');
     updateApiStatus();
     setApiSaveButtonLoading(false);
     setApiKeyFeedback(`Erro ao validar chave: ${validation.message}`, 'error');
@@ -141,11 +204,14 @@ async function saveApiKey() {
   }
 
   AppState.geminiApiKey = k;
+  AppState.geminiModel = validation.model || '';
   AppState.geminiApiVerified = true;
   localStorage.setItem('sr_osvaldo_gemini_key', k);
+  localStorage.setItem('sr_osvaldo_gemini_model', AppState.geminiModel);
   updateApiStatus();
   setApiSaveButtonLoading(false);
-  setApiKeyFeedback('Chave validada com sucesso.', 'success');
+  const modelName = (AppState.geminiModel || '').replace('models/', '');
+  setApiKeyFeedback(`Chave validada com sucesso. Modelo ativo: ${modelName}.`, 'success');
   closeApiKeyModal();
   showToast('IA ativada com sucesso! 🚀', 'success');
 }
@@ -160,7 +226,8 @@ function updateApiStatus() {
   }
   if (AppState.geminiApiVerified) {
     icon.textContent = '🟢';
-    if (btn) btn.title = 'IA validada e ativa';
+    const modelName = (AppState.geminiModel || '').replace('models/', '');
+    if (btn) btn.title = modelName ? `IA ativa (${modelName})` : 'IA validada e ativa';
     return;
   }
   icon.textContent = '🟡';
@@ -169,21 +236,26 @@ function updateApiStatus() {
 
 async function restoreAndValidateSavedApiKey() {
   if (!AppState.geminiApiKey) {
+    AppState.geminiModel = '';
     AppState.geminiApiVerified = false;
     updateApiStatus();
     return;
   }
   AppState.geminiApiVerified = false;
   updateApiStatus();
-  const valid = await validateGeminiApiKey(AppState.geminiApiKey);
-  if (valid) {
+  const validation = await validateGeminiApiKey(AppState.geminiApiKey);
+  if (validation.ok) {
+    AppState.geminiModel = validation.model || AppState.geminiModel;
+    if (AppState.geminiModel) localStorage.setItem('sr_osvaldo_gemini_model', AppState.geminiModel);
     AppState.geminiApiVerified = true;
     updateApiStatus();
     return;
   }
   AppState.geminiApiKey = '';
+  AppState.geminiModel = '';
   AppState.geminiApiVerified = false;
   localStorage.removeItem('sr_osvaldo_gemini_key');
+  localStorage.removeItem('sr_osvaldo_gemini_model');
   updateApiStatus();
 }
 
