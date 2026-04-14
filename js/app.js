@@ -656,16 +656,23 @@ function shuffle(a) { return [...a].sort(() => Math.random() - .5); }
 
 // ===== LOGIN =====
 function checkLogin() {
-  if (localStorage.getItem('sr_osvaldo_user')) {
+  // Alterado para sessionStorage para obrigar a ver o Login ao abrir nova aba/janela
+  if (sessionStorage.getItem('sr_osvaldo_session')) {
     document.getElementById('loginGate').classList.add('hidden');
+  } else {
+    document.getElementById('loginGate').classList.remove('hidden');
   }
 }
 
 function handleLogin() {
-  const email = document.getElementById('loginEmail')?.value || 'user@example.com';
+  const emailInput = document.getElementById('loginEmail');
+  const email = emailInput && emailInput.value.trim() ? emailInput.value.trim() : 'carlos.costato@hitss.com.br';
+  
+  sessionStorage.setItem('sr_osvaldo_session', 'true');
   localStorage.setItem('sr_osvaldo_user', email);
+  
   document.getElementById('loginGate').classList.add('hidden');
-  showToast('Bem-vindo de volta! 🎩', 'success');
+  showToast('Bem-vindo! 🎩', 'success');
 }
 
 // ===== COACH CHAT =====
