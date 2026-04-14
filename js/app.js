@@ -38,6 +38,7 @@ async function callGemini(prompt, isJson = false) {
         contents: [{ parts: [{ text: prompt }] }], 
         generationConfig: config 
       }),
+    });
     if (!r.ok) {
       const errText = await r.text();
       let msg = r.status.toString();
@@ -373,15 +374,53 @@ async function optimizeResume() {
   const ov = document.getElementById('analyzingOverlay');
   document.getElementById('analyzingText').textContent = 'Otimizando currículo...';
   document.getElementById('analyzingSubtext').textContent = 'Agentes aplicando melhorias';
-  const ids = ['agent-format','agent-experience','agent-education','agent-skills','agent-languages','agent-market','agent-jobs'];
-  const msgs = ['Melhorando formatação...','Reescrevendo experiências...','Adicionando formação...','Organizando habilidades...','Adicionando idiomas...','Inserindo keywords ATS...','Finalizando...'];
-  ids.forEach(a => { const el = document.getElementById(a); el.classList.remove('active','done'); el.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Aguardando...'; });
+  const steps = [
+    { id: 'agent-format', msg: 'Melhorando formatação...' },
+    { id: 'agent-experience', msg: 'Reescrevendo experiências...' },
+    { id: 'agent-education', msg: 'Ajustando formação...' },
+    { id: 'agent-skills', msg: 'Organizando habilidades...' },
+    { id: 'agent-jobs', msg: 'Finalizando otimizações...' },
+  ].filter(step => document.getElementById(step.id));
+
+  steps.forEach(step => {
+    const el = document.getElementById(step.id);
+    el.classList.remove('active','done');
+    el.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Aguardando...';
+  });
+
+  if (!steps.length) {
+    await genOptimized();
+    navigateTo('resume');
+    return;
+  }
+
   ov.classList.add('visible');
   let step = 0;
   function nx() {
-    if (step > 0) { const p = document.getElementById(ids[step-1]); p.classList.remove('active'); p.classList.add('done'); p.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Concluído ✅'; }
-    if (step < ids.length) { const el = document.getElementById(ids[step]); el.classList.add('active'); el.querySelector('.agent-status').innerHTML = `<span class="dot"></span> ${msgs[step]}`; document.getElementById('analyzingText').textContent = msgs[step]; step++; setTimeout(nx, 500 + Math.random() * 300); }
-    else { setTimeout(async () => { await genOptimized(); ov.classList.remove('visible'); document.getElementById('analyzingText').textContent = 'Analisando...'; document.getElementById('analyzingSubtext').textContent = 'Nossos 7 agentes estão trabalhando'; navigateTo('resume'); }, 400); }
+    if (step > 0) {
+      const prev = document.getElementById(steps[step - 1].id);
+      prev.classList.remove('active');
+      prev.classList.add('done');
+      prev.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Concluído ✅';
+    }
+
+    if (step < steps.length) {
+      const current = steps[step];
+      const el = document.getElementById(current.id);
+      el.classList.add('active');
+      el.querySelector('.agent-status').innerHTML = `<span class="dot"></span> ${current.msg}`;
+      document.getElementById('analyzingText').textContent = current.msg;
+      step++;
+      setTimeout(nx, 500 + Math.random() * 300);
+    } else {
+      setTimeout(async () => {
+        await genOptimized();
+        ov.classList.remove('visible');
+        document.getElementById('analyzingText').textContent = 'Analisando...';
+        document.getElementById('analyzingSubtext').textContent = 'Nossos 5 agentes estão trabalhando';
+        navigateTo('resume');
+      }, 400);
+    }
   }
   nx();
 }
