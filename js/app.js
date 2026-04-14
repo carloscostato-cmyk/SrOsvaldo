@@ -343,35 +343,27 @@ function initGoogleIdentity() {
       client_id: getGoogleClientId(),
       callback: handleGoogleCredentialResponse,
     });
+
+    const container = document.getElementById('googleSignInButton');
+    if (container && !window.__srOsvaldoGoogleButtonRendered) {
+      const width = Math.max(220, Math.min(360, container.clientWidth || 360));
+      container.innerHTML = '';
+      window.google.accounts.id.renderButton(container, {
+        type: 'standard',
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        width,
+      });
+      window.__srOsvaldoGoogleButtonRendered = true;
+    }
+
     window.__srOsvaldoGoogleReady = true;
     return true;
   } catch (error) {
     console.error('Google Identity init error:', error);
     return false;
-  }
-}
-
-function handleGoogleLogin() {
-  if (!isGoogleLoginConfigured()) {
-    showToast('Configure o Google Client ID antes de entrar.', 'error');
-    return;
-  }
-
-  if (!window.__srOsvaldoGoogleReady && !initGoogleIdentity()) {
-    showToast('Google Login ainda nao carregou. Tente novamente em alguns segundos.', 'error');
-    return;
-  }
-
-  if (window.google?.accounts?.id?.prompt) {
-    window.google.accounts.id.prompt((notification) => {
-      const notDisplayed = typeof notification?.isNotDisplayed === 'function' && notification.isNotDisplayed();
-      const skipped = typeof notification?.isSkippedMoment === 'function' && notification.isSkippedMoment();
-      if (notDisplayed || skipped) {
-        showToast('Nao foi possivel abrir o login Google neste navegador. Tente novamente.', 'error');
-      }
-    });
-  } else {
-    showToast('Biblioteca Google nao carregou corretamente.', 'error');
   }
 }
 
@@ -1250,7 +1242,6 @@ Pergunta do usuário: "${msg}"`;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  window.handleGoogleLogin = handleGoogleLogin;
   window.handleLogin = handleLogin;
   window.openSignupModal = openSignupModal;
   window.closeSignupModal = closeSignupModal;
