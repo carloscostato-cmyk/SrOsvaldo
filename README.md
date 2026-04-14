@@ -165,6 +165,16 @@ Configuracao em `cloudflare/wrangler.toml`:
 - `LOG_SALT`
 - `ALLOWED_ORIGIN`
 
+### Fase 3 - UX sem fricção
+
+- Usuario final nao precisa inserir chave de IA no navegador
+- Modal `IA` mostra apenas status de conexao do servico
+- Mensagens amigaveis para:
+  - limite temporario (quota/rate limit)
+  - bloqueio de seguranca (captcha)
+  - indisponibilidade do endpoint
+- Fluxos de analise, otimizacao, vagas e coach mostram feedback claro ao usuario
+
 ### Deploy rápido do Worker (Cloudflare)
 
 1. Instale o Wrangler: `npm i -g wrangler`

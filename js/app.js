@@ -16,6 +16,7 @@ const AppState = {
   aiServiceReady: false,
   aiServiceMessage: 'IA indisponivel no momento.',
   aiServiceModel: '',
+  aiLastUserError: '',
 };
 
 // PDF.JS
@@ -31,6 +32,22 @@ const AI_GEMINI_URL = AI_BASE ? `${AI_BASE}/api/gemini` : '';
 
 function isAiEndpointConfigured() {
   return Boolean(AI_BASE && /^https?:\/\//i.test(AI_BASE));
+}
+
+function classifyAiServiceError(message = '') {
+  const msg = String(message || '');
+  const lower = msg.toLowerCase();
+
+  if (/quota diaria|quota|rate limit|retry/i.test(lower)) {
+    return 'A IA atingiu limite temporario de uso. Tente novamente em alguns minutos.';
+  }
+  if (/captcha/i.test(lower)) {
+    return 'A verificacao de seguranca bloqueou a requisicao. Recarregue a pagina e tente novamente.';
+  }
+  if (/endpoint de ia nao configurado|health check/i.test(lower)) {
+    return 'Servico de IA ainda nao configurado no servidor.';
+  }
+  return msg || 'Servico de IA indisponivel no momento.';
 }
 
 async function callGemini(prompt, isJson = false) {
@@ -55,10 +72,15 @@ async function callGemini(prompt, isJson = false) {
     return d?.text || null;
   } catch (e) {
     console.error('IA Service:', e);
-    AppState.aiServiceReady = false;
-    AppState.aiServiceMessage = String(e?.message || 'Falha no servico de IA.');
+    const raw = String(e?.message || 'Falha no servico de IA.');
+    const userMessage = classifyAiServiceError(raw);
+    AppState.aiLastUserError = userMessage;
+    if (!/quota|rate limit|captcha/i.test(raw.toLowerCase())) {
+      AppState.aiServiceReady = false;
+    }
+    AppState.aiServiceMessage = userMessage;
     updateApiStatus();
-    showToast('Servico de IA indisponivel no momento.', 'error');
+    showToast(userMessage, 'error');
     return `[ERRO] ${e.message}`; 
   }
 }
@@ -376,7 +398,7 @@ async function performAnalysis() {
     if (!r) {
       AppState.analysisResult = null;
       AppState.candidateProfile = null;
-      showToast('A analise com IA falhou. Tente novamente com uma chave valida.', 'error');
+      showToast(AppState.aiLastUserError || 'A analise com IA falhou. Tente novamente em instantes.', 'error');
       return false;
     }
 
@@ -395,7 +417,7 @@ async function performAnalysis() {
     console.error('Gemini analysis error:', e);
     AppState.analysisResult = null;
     AppState.candidateProfile = null;
-    showToast('A analise com IA falhou. Verifique sua chave e tente novamente.', 'error');
+    showToast(AppState.aiLastUserError || 'A analise com IA falhou. Tente novamente.', 'error');
     return false;
   }
 }
@@ -530,7 +552,7 @@ async function genOptimized() {
   }
 
   if (!imps.length) {
-    showToast('Nao foi possivel gerar melhorias com IA. Tente novamente.', 'error');
+    showToast(AppState.aiLastUserError || 'Nao foi possivel gerar melhorias com IA. Tente novamente.', 'error');
     return;
   }
 
@@ -660,7 +682,7 @@ async function renderJobs() {
     if (!AppState.jobCoverLetters[job.id]) {
       const prompt = `Escreva uma carta de apresentação curta (150 palavras) em português para "${job.title}" na "${job.company}". Candidato: ${p.name}, ${p.role} ${p.level}, skills: ${p.skills.join(', ')}. Vaga pede: ${job.tags.join(', ')}. Seja direto e profissional.`;
       const ai = await callGemini(prompt);
-      AppState.jobCoverLetters[job.id] = ai || 'Carta nao gerada pela IA nesta tentativa.';
+      AppState.jobCoverLetters[job.id] = ai || (AppState.aiLastUserError || 'Carta nao gerada pela IA nesta tentativa.');
     }
   }
 
@@ -845,9 +867,9 @@ Pergunta do usuário: "${msg}"`;
   if (AppState.aiServiceReady) {
     const rawR = await callGemini(coachPrompt);
     if (!rawR) {
-      responseText = "Ops, não obtive resposta da IA.";
+      responseText = AppState.aiLastUserError || 'Ops, nao obtive resposta da IA.';
     } else if (rawR.startsWith('[ERRO]')) {
-      responseText = `Tive um problema na conexão com o Google Gemini. Motivo técnico: ${rawR}`;
+      responseText = AppState.aiLastUserError || `Tive um problema de conexão com a IA. Detalhe: ${rawR}`;
     } else {
       responseText = rawR;
     }
