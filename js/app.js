@@ -266,8 +266,19 @@ async function performAnalysis() {
     } catch (e) { console.error('Gemini fallback:', e); }
   }
 
-  // Local fallback extrema falha (quando sem API Key)
-  AppState.candidateProfile = { name:'Candidato Base', role:'Profissional', level:'Pleno', skills:['Análise'], initials:'CA', linkedinUrl:'' };
+  // Local fallback extrema falha (quando sem API Key ou erro)
+  const userEmail = localStorage.getItem('sr_osvaldo_user') || '';
+  const fallbackName = userEmail ? userEmail.split('@')[0].split('.').map(n => n.charAt(0).toUpperCase() + n.slice(1)).join(' ') : 'Candidato';
+  const fallbackInitials = fallbackName.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
+  
+  AppState.candidateProfile = { 
+    name: fallbackName, 
+    role: 'Profissional de Tecnologia', 
+    level: 'Sênior', 
+    skills: ['Análise', 'Tecnologia'], 
+    initials: fallbackInitials, 
+    linkedinUrl: AppState.uploadLinkedin || '' 
+  };
   const sc = (kws, base, mul, bonus) => { let s = base + bonus; kws.forEach(k => { if (low.includes(k)) s += mul; }); if (len < 200) s -= 20; if (len > 1000) s += 10; return clamp(s, 10, 100); };
   const scores = {
     formatting: sc(['experiência','formação','habilidade','educação','objetivo','contato','perfil'], 50, 4, len > 500 ? 15 : 0),
