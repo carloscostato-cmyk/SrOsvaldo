@@ -8,9 +8,9 @@ const state = {
 };
 
 const DEFAULTS = {
-  RATE_LIMIT_WINDOW_SECONDS: 60,
-  RATE_LIMIT_MAX_REQUESTS: 8,
-  DAILY_QUOTA_PER_IP: 80,
+  RATE_LIMIT_WINDOW_SECONDS: 0,
+  RATE_LIMIT_MAX_REQUESTS: 0,
+  DAILY_QUOTA_PER_IP: 0,
   MAX_PROMPT_CHARS: 40000,
 };
 
@@ -98,6 +98,10 @@ async function incrementDailyWithKvOrMemory(storage, key, ttlSeconds) {
 }
 
 async function enforceRateLimit(env, ip, config) {
+  if (config.rateWindowSeconds <= 0 || config.rateMaxRequests <= 0) {
+    return { ok: true, limit: 0, remaining: Infinity, retryAfter: 0 };
+  }
+
   const bucket = Math.floor(Date.now() / (config.rateWindowSeconds * 1000));
   const key = `rl:${ip}:${bucket}`;
   const ttl = config.rateWindowSeconds + 5;
@@ -119,6 +123,10 @@ async function enforceRateLimit(env, ip, config) {
 }
 
 async function enforceDailyQuota(env, ip, config) {
+  if (config.dailyQuotaPerIp <= 0) {
+    return { ok: true, limit: 0, remaining: Infinity };
+  }
+
   const dayKey = currentDayKey();
   const key = `dq:${ip}:${dayKey}`;
   const ttl = secondsUntilNextUtcDay() + 3600;

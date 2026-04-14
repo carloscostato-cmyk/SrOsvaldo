@@ -374,7 +374,7 @@ function classifyAiServiceError(message = '') {
   const lower = msg.toLowerCase();
 
   if (/quota diaria|quota|rate limit|retry/i.test(lower)) {
-    return 'A IA atingiu limite temporario de uso. Tente novamente em alguns minutos.';
+    return '';
   }
   if (/captcha/i.test(lower)) {
     return 'A verificacao de seguranca bloqueou a requisicao. Recarregue a pagina e tente novamente.';
@@ -414,10 +414,13 @@ async function callGemini(prompt, isJson = false) {
     if (!/quota|rate limit|captcha/i.test(raw.toLowerCase())) {
       AppState.aiServiceReady = false;
     }
-    AppState.aiServiceMessage = userMessage;
+    AppState.aiServiceMessage = userMessage || AppState.aiServiceMessage;
     updateApiStatus();
-    showToast(userMessage, 'error');
-    return `[ERRO] ${e.message}`; 
+    if (userMessage) {
+      showToast(userMessage, 'error');
+      return `[ERRO] ${e.message}`;
+    }
+    return null;
   }
 }
 
@@ -753,7 +756,9 @@ async function performAnalysis() {
     if (!r) {
       AppState.analysisResult = null;
       AppState.candidateProfile = null;
-      showToast(AppState.aiLastUserError || 'A analise com IA falhou. Tente novamente em instantes.', 'error');
+      if (AppState.aiLastUserError) {
+        showToast(AppState.aiLastUserError, 'warning');
+      }
       return false;
     }
 
@@ -772,7 +777,9 @@ async function performAnalysis() {
     console.error('Gemini analysis error:', e);
     AppState.analysisResult = null;
     AppState.candidateProfile = null;
-    showToast(AppState.aiLastUserError || 'A analise com IA falhou. Tente novamente.', 'error');
+    if (AppState.aiLastUserError) {
+      showToast(AppState.aiLastUserError, 'warning');
+    }
     return false;
   }
 }
@@ -907,7 +914,9 @@ async function genOptimized() {
   }
 
   if (!imps.length) {
-    showToast(AppState.aiLastUserError || 'Nao foi possivel gerar melhorias com IA. Tente novamente.', 'error');
+    if (AppState.aiLastUserError) {
+      showToast(AppState.aiLastUserError, 'warning');
+    }
     return;
   }
 
