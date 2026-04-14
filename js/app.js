@@ -30,11 +30,17 @@ async function callGemini(prompt) {
   try {
     const r = await fetch(GEMINI_URL(AppState.geminiApiKey), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } }),
+      body: JSON.stringify({ 
+        contents: [{ parts: [{ text: prompt }] }], 
+        generationConfig: { 
+          temperature: 0.7, 
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json" 
+        } 
+      }),
     });
     if (!r.ok) throw new Error(`API ${r.status}`);
     const d = await r.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
     return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (e) {
     console.error('Gemini:', e);
