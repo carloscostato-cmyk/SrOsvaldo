@@ -162,6 +162,27 @@ Observação:
 - A validação do login acontece no Worker por meio do token `id_token`
 - O login é liberado somente depois da validação do token pelo backend
 
+## Conta com Senha
+
+O app também suporta criação de conta com e-mail e senha para quem não quiser usar Google.
+
+Fluxo:
+
+1. Clique em `Criar Conta`
+2. Informe nome, e-mail e senha
+3. O Worker grava o usuário em `USERS_KV` com hash PBKDF2
+4. Depois disso, o login usa e-mail + senha no botão `Entrar`
+
+Configuração necessária no Worker:
+
+- `USERS_KV` para armazenar os usuários
+- `GOOGLE_CLIENT_ID` para manter o login Google funcionando
+
+Observação:
+
+- A senha não fica em texto puro no navegador
+- O cadastro e a validação acontecem no Worker
+
 ### Fase 2 - Segurança no Worker
 
 - Rate limit por IP (janela por minuto)

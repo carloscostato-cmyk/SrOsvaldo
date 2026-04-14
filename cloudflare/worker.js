@@ -206,6 +206,90 @@ function jsonResponse(body, status = 200, origin = '*', allowedOrigin = '*') {
   });
 }
 
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const cleanHex = String(hex || '').trim();
+  const bytes = new Uint8Array(cleanHex.length / 2);
+  for (let index = 0; index < cleanHex.length; index += 2) {
+    bytes[index / 2] = parseInt(cleanHex.slice(index, index + 2), 16);
+  }
+  return bytes;
+}
+
+function constantTimeEqual(left, right) {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
+function randomHex(byteLength = 16) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
+async function hashPassword(password, saltHex, iterations = 120000) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: hexToBytes(saltHex),
+      iterations,
+      hash: 'SHA-256',
+    },
+    key,
+    256
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+async function verifyPassword(password, record) {
+  if (!record?.hash || !record?.salt) return false;
+  const derivedHash = await hashPassword(password, record.salt, Number(record.iterations || 120000));
+  return constantTimeEqual(String(derivedHash), String(record.hash));
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function normalizeName(name, email) {
+  const value = String(name || '').trim();
+  return value || String(email || '').trim();
+}
+
+async function readJsonBody(request) {
+  try {
+    return await request.json();
+  } catch (error) {
+    return {};
+  }
+}
+
+async function getUserRecord(env, email) {
+  if (!env.USERS_KV?.get) return null;
+  const key = `user:${normalizeEmail(email)}`;
+  const raw = await env.USERS_KV.get(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+}
+
 async function verifyGoogleCredential(credential, expectedClientId) {
   const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`;
   const response = await fetch(url);
@@ -366,6 +450,132 @@ export default {
           reason: String(e?.message || ''),
         });
         return jsonResponse({ ok: false, message: String(e?.message || 'Falha no health check de IA') }, 503, origin, allowedOrigin);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/auth/register') {
+      try {
+        const body = await readJsonBody(request);
+        const name = normalizeName(body?.name, body?.email);
+        const email = normalizeEmail(body?.email);
+        const password = String(body?.password || '');
+
+        const rate = await enforceRateLimit(env, ip, config);
+        if (!rate.ok) {
+          return jsonResponse({ ok: false, error: rate.error }, 429, origin, allowedOrigin);
+        }
+
+        if (!email || !email.includes('@')) {
+          return jsonResponse({ ok: false, error: 'E-mail invalido.' }, 400, origin, allowedOrigin);
+        }
+        if (!name) {
+          return jsonResponse({ ok: false, error: 'Nome obrigatorio.' }, 400, origin, allowedOrigin);
+        }
+        if (password.length < 8) {
+          return jsonResponse({ ok: false, error: 'Senha precisa ter pelo menos 8 caracteres.' }, 400, origin, allowedOrigin);
+        }
+        if (!env.USERS_KV?.get || !env.USERS_KV?.put) {
+          return jsonResponse({ ok: false, error: 'USERS_KV nao configurado no Worker.' }, 500, origin, allowedOrigin);
+        }
+
+        const captcha = await verifyTurnstileIfRequired(request, env, config, body, ip);
+        if (!captcha.ok) {
+          return jsonResponse({ ok: false, error: captcha.error }, 403, origin, allowedOrigin);
+        }
+
+        const key = `user:${email}`;
+        const exists = await env.USERS_KV.get(key);
+        if (exists) {
+          return jsonResponse({ ok: false, error: 'Ja existe uma conta com este e-mail.' }, 409, origin, allowedOrigin);
+        }
+
+        const salt = randomHex(16);
+        const iterations = 120000;
+        const hash = await hashPassword(password, salt, iterations);
+        const record = {
+          email,
+          name,
+          salt,
+          iterations,
+          hash,
+          createdAt: new Date().toISOString(),
+        };
+
+        await env.USERS_KV.put(key, JSON.stringify(record));
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        return jsonResponse({ ok: true, user: { email, name, picture: '', provider: 'password' } }, 200, origin, allowedOrigin);
+      } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 500,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
+        return jsonResponse({ ok: false, error: String(e?.message || 'Falha ao criar conta.') }, 500, origin, allowedOrigin);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/auth/password') {
+      try {
+        const body = await readJsonBody(request);
+        const email = normalizeEmail(body?.email);
+        const password = String(body?.password || '');
+
+        const rate = await enforceRateLimit(env, ip, config);
+        if (!rate.ok) {
+          return jsonResponse({ ok: false, error: rate.error }, 429, origin, allowedOrigin);
+        }
+
+        if (!email || !email.includes('@')) {
+          return jsonResponse({ ok: false, error: 'E-mail invalido.' }, 400, origin, allowedOrigin);
+        }
+        if (!password) {
+          return jsonResponse({ ok: false, error: 'Senha obrigatoria.' }, 400, origin, allowedOrigin);
+        }
+        if (!env.USERS_KV?.get) {
+          return jsonResponse({ ok: false, error: 'USERS_KV nao configurado no Worker.' }, 500, origin, allowedOrigin);
+        }
+
+        const record = await getUserRecord(env, email);
+        if (!record) {
+          return jsonResponse({ ok: false, error: 'Conta nao encontrada. Crie uma conta primeiro.' }, 401, origin, allowedOrigin);
+        }
+
+        const isValid = await verifyPassword(password, record);
+        if (!isValid) {
+          return jsonResponse({ ok: false, error: 'E-mail ou senha invalidos.' }, 401, origin, allowedOrigin);
+        }
+
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        return jsonResponse({ ok: true, user: { email: record.email, name: record.name, picture: '', provider: 'password' } }, 200, origin, allowedOrigin);
+      } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 401,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
+        return jsonResponse({ ok: false, error: String(e?.message || 'Falha ao autenticar.') }, 401, origin, allowedOrigin);
       }
     }
 

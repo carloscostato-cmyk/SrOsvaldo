@@ -24,3 +24,8 @@ compatibility_date = "2026-04-14"
 # [[kv_namespaces]]
 # binding = "AI_USAGE_KV"
 # id = "<SEU_KV_NAMESPACE_ID>"
+
+# Base de usuarios para login/senha:
+# [[kv_namespaces]]
+# binding = "USERS_KV"
+# id = "<SEU_USERS_KV_NAMESPACE_ID>"

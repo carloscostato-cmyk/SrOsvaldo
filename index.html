@@ -50,8 +50,49 @@
       <button class="login-btn-submit" onclick="handleLogin()">Entrar</button>
       
       <div class="login-footer">
-        <a href="#">Esqueceu a senha?</a>
-        <span>Sem conta? <a href="#" class="signup">Criar Conta</a></span>
+        <a href="#" onclick="handlePasswordRecovery(); return false;">Esqueceu a senha?</a>
+        <span>Sem conta? <a href="#" class="signup" onclick="openSignupModal(); return false;">Criar Conta</a></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SIGNUP MODAL ===== -->
+  <div class="modal-overlay" id="signupModal" style="background:var(--bg-body); z-index:10000; display:none;">
+    <div class="modal" style="max-width:560px; box-shadow: var(--shadow-xl); border:1px solid #e2e8f0">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+        <h2>Criar conta no Sr. OSvaldo</h2>
+        <button type="button" onclick="closeSignupModal()" aria-label="Fechar" style="background:none;font-size:1.5rem;line-height:1;color:var(--text-muted);padding:4px 8px">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:16px;font-size:.92rem;color:var(--text-secondary);line-height:1.6">
+          Crie sua conta com e-mail e senha para entrar no app sem depender do Google.
+        </p>
+        <div style="display:grid;gap:14px">
+          <div>
+            <label for="signupName" style="display:block;margin-bottom:8px;font-weight:600;color:var(--text-primary);font-size:.9rem">Nome</label>
+            <input id="signupName" type="text" placeholder="Seu nome" style="width:100%;padding:14px 16px;border-radius:12px;border:1px solid #cbd5e1;font-size:.95rem;outline:none;transition:var(--transition-base)">
+          </div>
+          <div>
+            <label for="signupEmail" style="display:block;margin-bottom:8px;font-weight:600;color:var(--text-primary);font-size:.9rem">E-mail</label>
+            <input id="signupEmail" type="email" placeholder="voce@exemplo.com" style="width:100%;padding:14px 16px;border-radius:12px;border:1px solid #cbd5e1;font-size:.95rem;outline:none;transition:var(--transition-base)">
+          </div>
+          <div>
+            <label for="signupPassword" style="display:block;margin-bottom:8px;font-weight:600;color:var(--text-primary);font-size:.9rem">Senha</label>
+            <input id="signupPassword" type="password" placeholder="Crie uma senha forte" style="width:100%;padding:14px 16px;border-radius:12px;border:1px solid #cbd5e1;font-size:.95rem;outline:none;transition:var(--transition-base)">
+          </div>
+          <div>
+            <label for="signupPasswordConfirm" style="display:block;margin-bottom:8px;font-weight:600;color:var(--text-primary);font-size:.9rem">Confirmar senha</label>
+            <input id="signupPasswordConfirm" type="password" placeholder="Repita a senha" style="width:100%;padding:14px 16px;border-radius:12px;border:1px solid #cbd5e1;font-size:.95rem;outline:none;transition:var(--transition-base)">
+          </div>
+        </div>
+        <div style="background:var(--primary-50);border-radius:var(--radius-lg);padding:16px;margin-top:18px;font-size:.85rem;line-height:1.6">
+          <strong>Regras mínimas:</strong> senha com pelo menos 8 caracteres. A senha é validada no Worker e não fica em texto puro no navegador.
+        </div>
+        <p id="signupFeedback" class="api-feedback" aria-live="polite" style="margin-top:14px"></p>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;gap:10px">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="closeSignupModal()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" type="button" id="signupSaveBtn" onclick="handleSignup()">Criar conta</button>
       </div>
     </div>
   </div>

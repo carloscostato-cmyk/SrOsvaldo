@@ -69,6 +69,65 @@ function getCurrentAiEndpointValue() {
   return getAiProxyEndpoint();
 }
 
+function getAuthApiBase() {
+  return getAiProxyEndpoint();
+}
+
+function getAuthApiUrl(pathname) {
+  const base = getAuthApiBase();
+  return base ? `${base}${pathname}` : '';
+}
+
+function getSignupFeedbackEl() {
+  return document.getElementById('signupFeedback');
+}
+
+function setSignupModalFeedback(message = '', type = 'info') {
+  const el = getSignupFeedbackEl();
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.className = 'api-feedback';
+    return;
+  }
+  el.textContent = message;
+  el.className = `api-feedback visible ${type}`;
+}
+
+function setSignupButtonLoading(isLoading) {
+  const btn = document.getElementById('signupSaveBtn');
+  if (!btn) return;
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? '⏳ Criando...' : 'Criar conta';
+}
+
+function openSignupModal() {
+  const modal = document.getElementById('signupModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  setSignupModalFeedback('', 'info');
+  setSignupButtonLoading(false);
+}
+
+function closeSignupModal() {
+  const modal = document.getElementById('signupModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function handlePasswordRecovery() {
+  showToast('Recuperação de senha ainda não configurada. Use Criar Conta para registrar um novo acesso.', 'info');
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function validatePasswordStrength(password) {
+  const value = String(password || '');
+  if (value.length < 8) return 'A senha precisa ter pelo menos 8 caracteres.';
+  return '';
+}
+
 function saveAiEndpoint(endpoint) {
   const normalized = String(endpoint || '').trim().replace(/\/$/, '');
   if (normalized) {
@@ -82,16 +141,122 @@ function saveAiEndpoint(endpoint) {
   return normalized;
 }
 
-function setLoggedInUser(user) {
+function setLoggedInUser(user, provider = 'local') {
   const email = String(user?.email || '').trim();
   const name = String(user?.name || email || '').trim();
   const picture = String(user?.picture || '').trim();
 
   sessionStorage.setItem('sr_osvaldo_session', 'true');
-  localStorage.setItem('sr_osvaldo_user', email || name || 'google-user');
-  localStorage.setItem('sr_osvaldo_user_name', name || email || 'Google User');
+  localStorage.setItem('sr_osvaldo_user', email || name || 'user');
+  localStorage.setItem('sr_osvaldo_user_name', name || email || 'Usuário');
   localStorage.setItem('sr_osvaldo_user_picture', picture);
-  localStorage.setItem('sr_osvaldo_auth_provider', 'google');
+  localStorage.setItem('sr_osvaldo_auth_provider', provider);
+}
+
+async function handleSignup() {
+  const name = document.getElementById('signupName')?.value.trim() || '';
+  const email = normalizeEmail(document.getElementById('signupEmail')?.value);
+  const password = document.getElementById('signupPassword')?.value || '';
+  const confirmPassword = document.getElementById('signupPasswordConfirm')?.value || '';
+
+  if (!name) {
+    setSignupModalFeedback('Informe seu nome.', 'error');
+    return;
+  }
+  if (!email || !email.includes('@')) {
+    setSignupModalFeedback('Informe um e-mail válido.', 'error');
+    return;
+  }
+
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) {
+    setSignupModalFeedback(passwordError, 'error');
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    setSignupModalFeedback('As senhas não coincidem.', 'error');
+    return;
+  }
+
+  const authUrl = getAuthApiUrl('/api/auth/register');
+  if (!authUrl) {
+    setSignupModalFeedback('Configure a URL do Worker antes de criar conta.', 'error');
+    return;
+  }
+
+  setSignupButtonLoading(true);
+  try {
+    const response = await fetch(authUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || data?.message || 'Falha ao criar conta.');
+    }
+
+    setLoggedInUser(data.user || { email, name }, 'password');
+    closeSignupModal();
+    document.getElementById('loginGate').classList.add('hidden');
+    showToast('Conta criada com sucesso! 🎩', 'success');
+  } catch (error) {
+    setSignupModalFeedback(String(error?.message || 'Falha ao criar conta.'), 'error');
+  } finally {
+    setSignupButtonLoading(false);
+  }
+}
+
+async function handleLogin() {
+  const emailInput = document.getElementById('loginEmail');
+  const passwordInput = document.querySelector('#loginGate input[type="password"]');
+  const email = normalizeEmail(emailInput?.value || '');
+  const password = passwordInput?.value || '';
+
+  if (!email || !email.includes('@')) {
+    showToast('Informe um e-mail válido.', 'error');
+    return;
+  }
+  if (!password) {
+    showToast('Informe sua senha.', 'error');
+    return;
+  }
+
+  const authUrl = getAuthApiUrl('/api/auth/password');
+  if (!authUrl) {
+    showToast('Configure a URL do Worker antes de entrar.', 'error');
+    return;
+  }
+
+  const loginBtn = document.querySelector('.login-btn-submit');
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.textContent = '⏳ Entrando...';
+  }
+
+  try {
+    const response = await fetch(authUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || data?.message || 'E-mail ou senha inválidos.');
+    }
+
+    setLoggedInUser(data.user || { email }, 'password');
+    document.getElementById('loginGate').classList.add('hidden');
+    showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
+  } catch (error) {
+    showToast(String(error?.message || 'Falha ao entrar.'), 'error');
+  } finally {
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Entrar';
+    }
+  }
 }
 
 function handleGoogleCredentialResponse(response) {
@@ -962,19 +1127,6 @@ function checkLogin() {
   } else {
     document.getElementById('loginGate').classList.remove('hidden');
   }
-}
-
-function handleLogin() {
-  const emailInput = document.getElementById('loginEmail');
-  const email = emailInput && emailInput.value.trim() ? emailInput.value.trim() : 'carlos.costato@hitss.com.br';
-  
-  sessionStorage.setItem('sr_osvaldo_session', 'true');
-  localStorage.setItem('sr_osvaldo_user', email);
-  
-  document.getElementById('loginGate').classList.add('hidden');
-  showToast('Bem-vindo! 🎩', 'success');
-
-  // Login concluido. A conexao com IA e gerenciada pelo backend.
 }
 
 // ===== COACH CHAT =====
