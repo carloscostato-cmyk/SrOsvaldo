@@ -306,9 +306,9 @@ async function performAnalysis() {
 async function analyzeWithGemini(text, linkedin = '') {
   let extraLinkedin = linkedin ? `Aviso: O usuário informou este link do LinkedIn: ${linkedin}. Substitua qualquer valor encontrado no documento por este ou, se estiver vazio, garanta que este seja colocado.` : '';
   const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`, sem explicação adicional):
-{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
+{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}, "recommendedJobs": [{"title": "Cargo sugerido", "company": "Empresa Fictícia", "logo": "🏢", "logoBg": "#000000", "location": "Remoto", "salary": "Faixa", "tags": ["skill1", "skill2"], "description": "Breve descrição", "match": 95, "source": "LinkedIn", "url": "https://linkedin.com/jobs"}]}
 
-Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. ${extraLinkedin}
+Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. Além disso, crie 3 vagas ideais na chave recommendedJobs que sejam EXATAMENTE para o perfil da pessoa (não crie vagas genéricas). ${extraLinkedin}
 
 Currículo: ${text}`;
   const r = await callGemini(prompt);
@@ -522,9 +522,15 @@ async function renderJobs() {
   document.getElementById('jobsProfileSkills2').textContent = p.skills.slice(0, 6).join(', ');
 
   // Calculate match and filter only relevant (>15%)
-  let jobs = JOBS_DB.map(j => ({ ...j, match: calcMatch(j) })).filter(j => j.match > 15).sort((a, b) => b.match - a.match);
+  let baseJobs = [];
+  if (AppState.analysisResult && AppState.analysisResult.recommendedJobs && AppState.analysisResult.recommendedJobs.length > 0) {
+    baseJobs = AppState.analysisResult.recommendedJobs.map((j, i) => ({ ...j, id: 990 + i, match: j.match || 98 }));
+  } else {
+    baseJobs = JOBS_DB.map(j => ({ ...j, match: calcMatch(j) })).filter(j => j.match > 15).sort((a, b) => b.match - a.match);
+  }
+  let jobs = baseJobs;
 
-  countEl.innerHTML = `<strong>${jobs.length}</strong> vagas encontradas automaticamente pelos agentes`;
+  countEl.innerHTML = `<strong>${jobs.length}</strong> vagas perfeitas geradas pela IA para o seu perfil`;
 
   // Generate cover letters (Gemini for top 3, local for rest)
   showToast('Gerando cartas de apresentação...', 'info');
@@ -609,11 +615,14 @@ function copyLetter(jobId) {
 }
 
 function applyToJob(jobId) {
-  const job = JOBS_DB.find(j => j.id === jobId);
+  let job = JOBS_DB.find(j => j.id === jobId);
+  if (!job && AppState.analysisResult && AppState.analysisResult.recommendedJobs) {
+    job = AppState.analysisResult.recommendedJobs.map((j, i) => ({...j, id: 990 + i})).find(j => j.id === jobId);
+  }
   if (!job || AppState.applications.some(a => a.jobId === jobId)) return;
   AppState.applications.push({
     jobId: job.id, title: job.title, company: job.company,
-    logo: job.logo, logoBg: job.logoBg,
+    logo: job.logo || '🏢', logoBg: job.logoBg || '#000000',
     date: new Date().toLocaleDateString('pt-BR'),
     status: ['sent','sent','viewed'][Math.floor(Math.random() * 3)],
   });
@@ -673,6 +682,11 @@ function handleLogin() {
   
   document.getElementById('loginGate').classList.add('hidden');
   showToast('Bem-vindo! 🎩', 'success');
+
+  // Abre logo em seguida para garantir a chave
+  if (!AppState.geminiApiKey) {
+    showApiKeyModal();
+  }
 }
 
 // ===== COACH CHAT =====
@@ -748,6 +762,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initDropzone();
   updateApiStatus();
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
-  if (!AppState.geminiApiKey) setTimeout(() => showApiKeyModal(), 1500);
   console.log('🎩 Sr. OSvaldo v4.0 — Login & Coach Added');
 });
