@@ -113,6 +113,7 @@ function navigateTo(page) {
   if (page === 'jobs') renderJobs();
   else if (page === 'dashboard') renderDashboard();
   else if (page === 'analysis' && AppState.analysisResult) animateAnalysis();
+  else if (page === 'coach') setTimeout(() => document.getElementById('coachInput')?.focus(), 100);
 }
 function toggleMobileMenu() { document.getElementById('navLinks').classList.toggle('open'); }
 function scrollToFeatures() { document.getElementById('featuresSection')?.scrollIntoView({ behavior:'smooth' }); }
@@ -171,52 +172,27 @@ function removeFile() {
 
 function formatSize(b) { if (!b) return '0 B'; const k = 1024, s = ['B','KB','MB']; const i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + ' ' + s[i]; }
 
-// ===== PROFILE EXTRACTION =====
-function extractProfile(text) {
-  const low = text.toLowerCase();
-  const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l);
-
-  let name = 'Candidato';
-  for (const l of lines.slice(0, 5)) {
-    if (l.length > 2 && l.length < 60 && !l.includes(':') && !l.includes('@') && !l.includes('http') && !/\d{4}/.test(l)) { name = l; break; }
-  }
-
-  const skills = ALL_SKILLS.filter(s => low.includes(s.toLowerCase()));
-
-  let role = 'Profissional';
-  const rmap = [
-    [/full\s*stack/i,'Desenvolvedor Full Stack'],[/front.?end/i,'Desenvolvedor Frontend'],[/back.?end/i,'Desenvolvedor Backend'],
-    [/mobile|react native|flutter/i,'Desenvolvedor Mobile'],[/devops|infra/i,'Engenheiro DevOps'],
-    [/data.*scien|cientista.*dado/i,'Cientista de Dados'],[/data.*eng|engenheiro.*dado/i,'Engenheiro de Dados'],
-    [/analis.*dado|data.*analy/i,'Analista de Dados'],[/design|ux|ui/i,'Designer UX/UI'],
-    [/security|segurança|cyber|fortinet/i,'Especialista em Segurança'],[/machine.*learn/i,'Engenheiro de ML'],
-    [/scrum.*master/i,'Scrum Master'],[/gerente|manager|gestor|coordenador/i,'Gestor'],
-    [/desenvolvedor|developer|programador/i,'Desenvolvedor'],[/analista/i,'Analista'],
-    [/consultor/i,'Consultor'],[/suporte|support|helpdesk/i,'Analista de Suporte'],
-    [/redes|network/i,'Analista de Redes'],[/power apps|power automate|sharepoint/i,'Consultor Power Platform'],
-  ];
-  for (const [p, r] of rmap) { if (p.test(text)) { role = r; break; } }
-
-  let level = 'Pleno';
-  if (/s[eê]nior|sr\.|lead|líder|principal|staff/i.test(text)) level = 'Sênior';
-  else if (/j[uú]nior|jr\.|estagi[aá]rio|trainee/i.test(text)) level = 'Júnior';
-  else { const m = text.match(/(\d+)\s*(anos?|years?)\s*(de\s*)?experi/i); if (m) { const y = parseInt(m[1]); level = y >= 6 ? 'Sênior' : y >= 3 ? 'Pleno' : 'Júnior'; } }
-
-  const parts = name.split(' ');
-  const initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : name.substring(0, 2)).toUpperCase();
-
-  AppState.candidateProfile = { name, role, level, skills: skills.slice(0, 10), initials };
-  return AppState.candidateProfile;
-}
-
+// ===== PROFILE EXTRACTION OMITIDA - FEITA PELO GEMINI =====
 function renderProfileCard(p) {
   document.getElementById('profileCard').style.display = 'flex';
   const av = document.getElementById('profileAvatar');
-  av.textContent = p.initials; av.style.fontSize = '1.5rem'; av.style.fontWeight = '800';
-  document.getElementById('profileName').textContent = p.name;
-  document.getElementById('profileRole').textContent = p.role;
-  document.getElementById('profileLevel').textContent = p.level;
-  document.getElementById('profileTags').innerHTML = p.skills.map(s => `<span class="profile-tag">${s}</span>`).join('');
+  av.textContent = p.initials || 'C'; av.style.fontSize = '1.5rem'; av.style.fontWeight = '800';
+  document.getElementById('profileName').textContent = p.name || 'Candidato';
+  document.getElementById('profileRole').textContent = p.role || 'Profissional';
+  
+  const lnk = document.getElementById('profileLinkedin');
+  if (lnk) {
+    if (p.linkedinUrl && p.linkedinUrl.toLowerCase() !== 'não encontrado' && p.linkedinUrl.includes('linkedin.com')) {
+      lnk.style.display = 'block';
+      let url = p.linkedinUrl.startsWith('http') ? p.linkedinUrl : 'https://' + p.linkedinUrl;
+      lnk.querySelector('a').href = url;
+    } else {
+      lnk.style.display = 'none';
+    }
+  }
+
+  document.getElementById('profileLevel').textContent = p.level || 'Sênior';
+  if (p.skills) document.getElementById('profileTags').innerHTML = p.skills.map(s => `<span class="profile-tag">${s}</span>`).join('');
 }
 
 // ===== ANALYSIS =====
@@ -224,7 +200,6 @@ async function startAnalysis() {
   const text = document.getElementById('resumeText').value.trim();
   if (!text && !AppState.uploadedFile) { showToast('Envie um arquivo ou cole o texto.', 'error'); return; }
   AppState.resumeText = text || 'Profissional com experiência em tecnologia.';
-  extractProfile(AppState.resumeText);
   showAgentsOverlay();
 }
 
@@ -263,6 +238,7 @@ async function performAnalysis() {
 
   if (AppState.geminiApiKey) {
     try {
+      showToast('Enviando para inteligência artificial...', 'info');
       const r = await analyzeWithGemini(text);
       if (r) { 
         AppState.analysisResult = r; 
@@ -271,8 +247,8 @@ async function performAnalysis() {
           const parts = pName.split(' ');
           r.profile.initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : pName.substring(0, 2)).toUpperCase();
           if (!r.profile.skills) r.profile.skills = [];
-          if (!r.profile.level) r.profile.level = 'Pleno';
-          if (!r.profile.role) r.profile.role = 'Profissional';
+          if (!r.profile.level) r.profile.level = 'Sênior';
+          if (!r.profile.role) r.profile.role = 'Especialista';
           AppState.candidateProfile = r.profile;
         }
         return; 
@@ -280,7 +256,8 @@ async function performAnalysis() {
     } catch (e) { console.error('Gemini fallback:', e); }
   }
 
-  // Local fallback
+  // Local fallback extrema falha (quando sem API Key)
+  AppState.candidateProfile = { name:'Candidato Base', role:'Profissional', level:'Pleno', skills:['Análise'], initials:'CA', linkedinUrl:'' };
   const sc = (kws, base, mul, bonus) => { let s = base + bonus; kws.forEach(k => { if (low.includes(k)) s += mul; }); if (len < 200) s -= 20; if (len > 1000) s += 10; return clamp(s, 10, 100); };
   const scores = {
     formatting: sc(['experiência','formação','habilidade','educação','objetivo','contato','perfil'], 50, 4, len > 500 ? 15 : 0),
@@ -300,15 +277,15 @@ async function performAnalysis() {
 }
 
 async function analyzeWithGemini(text) {
-  const prompt = `Você é um expert em currículos. Analise o currículo abaixo e retorne APENAS JSON válido (sem \`\`\`):
-{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Nome Completo Extraído", "role": "O Título da Profissão Principal", "level": "Nível deduzido pela experiência (Ex: Júnior, Pleno, Sênior, Especialista, Coordenador, etc)", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
+  const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`):
+{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado, senão deixe vazio", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
 
-Extraia com ALTA PRECISÃO o nome verdadeiro do candidato, cargo real, nível correto de senioridade com base no tempo de experiência, e as habilidades reais.
+Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento. Identifique bem o Cargo e Nível (não deduza "Mobile Developer" só porque a palavra mobile aparece, deduza pelo título principal dele).
 
 Currículo: ${text}`;
   const r = await callGemini(prompt);
   if (!r) return null;
-  try { const p = JSON.parse(r.replace(/```json?\s*/g, '').replace(/```/g, '').trim()); return p.totalScore ? p : null; } catch (e) { return null; }
+  try { const p = JSON.parse(r.replace(/```json?\s*/gi, '').replace(/```/g, '').trim()); return p.totalScore ? p : null; } catch (e) { console.error('JSON Error:', e); return null; }
 }
 
 // ===== RENDER ANALYSIS =====
@@ -635,11 +612,86 @@ function escHtml(t) { const d = document.createElement('div'); d.textContent = t
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function shuffle(a) { return [...a].sort(() => Math.random() - .5); }
 
+// ===== LOGIN =====
+function checkLogin() {
+  if (localStorage.getItem('sr_osvaldo_user')) {
+    document.getElementById('loginGate').classList.add('hidden');
+  }
+}
+
+function handleLogin() {
+  const email = document.getElementById('loginEmail')?.value || 'user@example.com';
+  localStorage.setItem('sr_osvaldo_user', email);
+  document.getElementById('loginGate').classList.add('hidden');
+  showToast('Bem-vindo de volta! 🎩', 'success');
+}
+
+// ===== COACH CHAT =====
+async function sendCoachMessage() {
+  const input = document.getElementById('coachInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const chatBody = document.getElementById('coachChatBody');
+  
+  // Render user message
+  const userDiv = document.createElement('div');
+  userDiv.className = 'chat-msg user';
+  userDiv.innerHTML = `<div class="chat-bubble">${escHtml(msg)}</div><div class="chat-time">Agora</div>`;
+  chatBody.appendChild(userDiv);
+  
+  input.value = '';
+  chatBody.scrollTop = chatBody.scrollHeight;
+  const btn = document.getElementById('coachSendBtn');
+  btn.disabled = true;
+
+  // Render typing indicator
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'chat-msg bot';
+  typingDiv.id = 'coachTyping';
+  typingDiv.innerHTML = `<div class="chat-bubble"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+  chatBody.appendChild(typingDiv);
+  chatBody.scrollTop = chatBody.scrollHeight;
+
+  // Prepare Gemini Prompt
+  let coachPrompt = `Você é o "Coach OSvaldo", um assistente de carreira amigável e especialista em RH dentro do app "Sr. OSvaldo".
+Você deve responder diretamente ao usuário. Suas respostas devem ser curtas e diretas ao ponto (máximo 2 parágrafos).
+Se o usuário tiver um currículo analisado, considere o seguinte perfil para dar respostas personalizadas:
+Nome: ${AppState.candidateProfile?.name || 'Não informado'}
+Cargo: ${AppState.candidateProfile?.role || 'Não informado'}
+Nível: ${AppState.candidateProfile?.level || 'Não informado'}
+Skills: ${(AppState.candidateProfile?.skills || []).join(', ')}
+
+Pergunta do usuário: "${msg}"`;
+
+  let responseText = "Desculpe, a IA está desligada. Configure sua API Key no topo para eu acordar!";
+  
+  if (AppState.geminiApiKey) {
+    responseText = await callGemini(coachPrompt) || "Tive um problema de conexão. Pode repetir?";
+  }
+
+  // Remove typing
+  document.getElementById('coachTyping')?.remove();
+
+  // Render bot reply
+  const botDiv = document.createElement('div');
+  botDiv.className = 'chat-msg bot';
+  /* Formatação básica de markdown para HTML */
+  let formattedResponse = escHtml(responseText).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  botDiv.innerHTML = `<div class="chat-bubble">${formattedResponse}</div><div class="chat-time">Agora</div>`;
+  chatBody.appendChild(botDiv);
+  
+  chatBody.scrollTop = chatBody.scrollHeight;
+  btn.disabled = false;
+  input.focus();
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+  checkLogin();
   initDropzone();
   updateApiStatus();
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
   if (!AppState.geminiApiKey) setTimeout(() => showApiKeyModal(), 1500);
-  console.log('🎩 Sr. OSvaldo v4.0 — Automação Total');
+  console.log('🎩 Sr. OSvaldo v4.0 — Login & Coach Added');
 });
