@@ -91,14 +91,12 @@
   <div class="analyzing-overlay" id="analyzingOverlay">
     <div class="analyzing-spinner"></div>
     <div class="analyzing-text" id="analyzingText">Analisando seu currículo...</div>
-    <div class="analyzing-subtext" id="analyzingSubtext">Nossos 7 agentes especializados estão trabalhando</div>
+    <div class="analyzing-subtext" id="analyzingSubtext">Nossos 5 agentes especializados estão trabalhando</div>
     <div class="agents-panel" id="agentsPanel">
       <div class="agent-card" id="agent-format"><div class="agent-avatar format">📝</div><div class="agent-info"><div class="agent-name">Agente de Formatação</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
       <div class="agent-card" id="agent-experience"><div class="agent-avatar content">💼</div><div class="agent-info"><div class="agent-name">Agente de Experiência</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
       <div class="agent-card" id="agent-education"><div class="agent-avatar" style="background:linear-gradient(135deg,#A78BFA,#7C3AED)">🎓</div><div class="agent-info"><div class="agent-name">Agente de Formação</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
       <div class="agent-card" id="agent-skills"><div class="agent-avatar" style="background:linear-gradient(135deg,#F472B6,#EC4899)">🔧</div><div class="agent-info"><div class="agent-name">Agente de Habilidades</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
-      <div class="agent-card" id="agent-languages"><div class="agent-avatar" style="background:linear-gradient(135deg,#38BDF8,#0284C7)">🌐</div><div class="agent-info"><div class="agent-name">Agente de Idiomas</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
-      <div class="agent-card" id="agent-market"><div class="agent-avatar market">📊</div><div class="agent-info"><div class="agent-name">Agente de Mercado/ATS</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
       <div class="agent-card" id="agent-jobs"><div class="agent-avatar jobs">🔍</div><div class="agent-info"><div class="agent-name">Agente de Vagas</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
     </div>
   </div>
@@ -133,11 +131,11 @@
         <div class="hero">
           <div class="hero-shapes"><div class="hero-shape"></div><div class="hero-shape"></div><div class="hero-shape"></div></div>
           <div class="hero-content">
-            <div class="hero-badge"><span class="badge-dot"></span>7 Agentes de IA Especializados</div>
+            <div class="hero-badge"><span class="badge-dot"></span>5 Agentes de IA Especializados</div>
             <img src="img/logo.png" alt="Sr. OSvaldo" class="hero-logo-img">
             <h1 class="hero-title"><span class="highlight">Sr. OSvaldo</span><br>Seu Agente de Carreira</h1>
             <p class="hero-description">
-              Suba seu currículo em PDF e pronto — 7 agentes inteligentes analisam, 
+              Suba seu currículo em PDF e pronto — 5 agentes inteligentes analisam, 
               otimizam e encontram as melhores vagas para você automaticamente. 
               Você não precisa fazer mais nada.
             </p>
@@ -156,7 +154,7 @@
             <div class="feature-card animate-in animate-delay-1">
               <div class="feature-icon green">🤖</div>
               <h3>Análise com IA Real</h3>
-              <p>7 agentes especializados analisam cada aspecto do seu currículo usando Google Gemini.</p>
+              <p>5 agentes especializados analisam cada aspecto do seu currículo usando Google Gemini.</p>
             </div>
             <div class="feature-card animate-in animate-delay-2">
               <div class="feature-icon blue">📄</div>
@@ -223,8 +221,13 @@
             <textarea class="upload-textarea" id="resumeText" placeholder="Cole o texto do currículo aqui..." style="margin-top:12px"></textarea>
           </details>
 
-          <div class="upload-actions">
-            <button class="btn btn-primary btn-lg" onclick="startAnalysis()">🤖 Analisar com 7 Agentes</button>
+          <div class="upload-linkedin" style="margin-top:32px; max-width:400px; margin-inline:auto;">
+            <label style="display:block; font-weight:600; margin-bottom:8px; color:var(--text-primary); text-align:left;">🔗 URL do LinkedIn (Opcional)</label>
+            <input type="url" id="uploadLinkedin" placeholder="https://linkedin.com/in/seu-perfil" style="width:100%; padding:14px; border-radius:8px; border:1px solid #cbd5e1; font-size:1rem; outline:none; transition:var(--transition-base)">
+          </div>
+
+          <div class="upload-actions" style="margin-top:32px;">
+            <button class="btn btn-primary btn-lg" onclick="startAnalysis()">🤖 Analisar com 5 Agentes</button>
           </div>
         </div>
       </div>
@@ -249,7 +252,7 @@
 
         <div class="analysis-header">
           <h2 class="section-title">📊 Resultado da Análise</h2>
-          <p class="section-subtitle" style="margin:0 auto">Análise por 7 agentes especializados com IA</p>
+          <p class="section-subtitle" style="margin:0 auto">Análise por 5 agentes especializados com IA</p>
         </div>
 
         <div class="score-container">
@@ -294,7 +297,7 @@
         <div class="optimized-container">
           <div style="text-align:center;margin-bottom:40px">
             <h2 class="section-title">✨ Currículo Otimizado</h2>
-            <p class="section-subtitle" style="margin:0 auto">Melhorias aplicadas pelos 7 agentes</p>
+            <p class="section-subtitle" style="margin:0 auto">Melhorias aplicadas pelos 5 agentes</p>
           </div>
 
           <div style="display:flex;gap:16px;justify-content:center;margin-bottom:32px;flex-wrap:wrap">

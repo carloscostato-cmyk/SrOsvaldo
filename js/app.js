@@ -22,7 +22,7 @@ if (typeof pdfjsLib !== 'undefined') {
 }
 
 // GEMINI
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-1.5-flash';
 const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${k}`;
 
 async function callGemini(prompt) {
@@ -35,7 +35,11 @@ async function callGemini(prompt) {
     if (!r.ok) throw new Error(`API ${r.status}`);
     const d = await r.json();
     return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch (e) { console.error('Gemini:', e); return null; }
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (e) {
+    console.error('Gemini:', e);
+    return `[ERRO] ${e.message}`; // Propaga o erro internamente para sabermos
+  }
 }
 
 // API KEY
@@ -198,8 +202,15 @@ function renderProfileCard(p) {
 // ===== ANALYSIS =====
 async function startAnalysis() {
   const text = document.getElementById('resumeText').value.trim();
-  if (!text && !AppState.uploadedFile) { showToast('Envie um arquivo ou cole o texto.', 'error'); return; }
-  AppState.resumeText = text || 'Profissional com experiência em tecnologia.';
+  
+  if (!text) {
+    showToast('Aguarde o carregamento do texto ou cole manualmente.', 'warning');
+    return;
+  }
+
+  AppState.uploadLinkedin = document.getElementById('uploadLinkedin')?.value.trim() || '';
+  AppState.resumeText = text;
+  
   showAgentsOverlay();
 }
 
@@ -211,8 +222,6 @@ function showAgentsOverlay() {
     { id:'agent-experience', s:'Avaliando experiências...' },
     { id:'agent-education', s:'Verificando formação...' },
     { id:'agent-skills', s:'Mapeando habilidades...' },
-    { id:'agent-languages', s:'Detectando idiomas...' },
-    { id:'agent-market', s:'Pesquisando mercado ATS...' },
     { id:'agent-jobs', s:'Buscando vagas compatíveis...' },
   ];
   agents.forEach(a => { const el = document.getElementById(a.id); el.classList.remove('active','done'); el.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Aguardando...'; });
@@ -239,7 +248,8 @@ async function performAnalysis() {
   if (AppState.geminiApiKey) {
     try {
       showToast('Enviando para inteligência artificial...', 'info');
-      const r = await analyzeWithGemini(text);
+      const apiResp = await analyzeWithGemini(text, AppState.uploadLinkedin);
+      const r = typeof apiResp === 'object' && apiResp !== null ? apiResp : null;
       if (r) { 
         AppState.analysisResult = r; 
         if (r.profile && r.profile.name) {
@@ -276,16 +286,27 @@ async function performAnalysis() {
   AppState.analysisResult = { totalScore, scores, goodFeedback: shuffle(gPool).slice(0, totalScore > 70 ? 5 : 4), badFeedback: shuffle(bPool).slice(0, totalScore > 70 ? 3 : 5) };
 }
 
-async function analyzeWithGemini(text) {
-  const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`):
-{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado, senão deixe vazio", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
+async function analyzeWithGemini(text, linkedin = '') {
+  let extraLinkedin = linkedin ? `Aviso: O usuário informou este link do LinkedIn: ${linkedin}. Substitua qualquer valor encontrado no documento por este ou, se estiver vazio, garanta que este seja colocado.` : '';
+  const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`, sem explicação adicional):
+{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
 
-Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento. Identifique bem o Cargo e Nível (não deduza "Mobile Developer" só porque a palavra mobile aparece, deduza pelo título principal dele).
+Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. ${extraLinkedin}
 
 Currículo: ${text}`;
   const r = await callGemini(prompt);
-  if (!r) return null;
-  try { const p = JSON.parse(r.replace(/```json?\s*/gi, '').replace(/```/g, '').trim()); return p.totalScore ? p : null; } catch (e) { console.error('JSON Error:', e); return null; }
+  if (!r || r.startsWith('[ERRO]')) {
+    console.error('Gemini falhou na análise de currículo:', r);
+    return null;
+  }
+  try { 
+    const cleanStr = r.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim(); 
+    const p = JSON.parse(cleanStr); 
+    return p.totalScore ? p : null; 
+  } catch (e) { 
+    console.error('JSON Error:', e, 'Raw API Response:', r); 
+    return null; 
+  }
 }
 
 // ===== RENDER ANALYSIS =====
@@ -301,13 +322,17 @@ function animateAnalysis() {
 function animNum(el, s, e, d) { const rng = e - s, t0 = performance.now(); function u(t) { const p = Math.min((t - t0) / d, 1); el.textContent = Math.round(s + rng * (1 - Math.pow(1-p, 3))); if (p < 1) requestAnimationFrame(u); } requestAnimationFrame(u); }
 
 function renderCategories(scores) {
-  const g = document.getElementById('categoriesGrid'); g.innerHTML = '';
-  CATEGORIES.forEach((c, i) => {
-    const s = scores[c.key] || 50, lev = s >= 70 ? '' : s >= 50 ? 'medium' : 'low';
-    const el = document.createElement('div'); el.className = 'category-item animate-in'; el.style.animationDelay = `${i*.1}s`;
-    el.innerHTML = `<div class="category-header"><span class="category-name">${c.icon} ${c.name}</span><span class="category-score">${s}/100</span></div><div class="category-bar"><div class="category-bar-fill ${lev}" style="width:0%"></div></div>`;
-    g.appendChild(el); setTimeout(() => el.querySelector('.category-bar-fill').style.width = `${s}%`, 300 + i * 150);
-  });
+  const cats = CATEGORIES.map(c => ({ ...c, score: scores[c.key] || 50 }));
+  document.getElementById('categoriesGrid').innerHTML = cats.map((c, i) => `
+    <div class="category-card animate-in animate-delay-${i+1}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px;align-items:center">
+        <span style="font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;color:var(--text-primary)"><span style="margin-right:8px">${c.icon}</span>${c.name}</span>
+        <span style="font-weight:800;color:var(--primary-600)">${c.score}/100</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:0" data-width="${c.score}%"></div></div>
+    </div>`).join('');
+  
+  setTimeout(() => document.querySelectorAll('.progress-fill').forEach(el => el.style.width = el.dataset.width), 100);
 }
 
 function renderFeedback(good, bad) {
@@ -667,7 +692,14 @@ Pergunta do usuário: "${msg}"`;
   let responseText = "Desculpe, a IA está desligada. Configure sua API Key no topo para eu acordar!";
   
   if (AppState.geminiApiKey) {
-    responseText = await callGemini(coachPrompt) || "Tive um problema de conexão. Pode repetir?";
+    const rawR = await callGemini(coachPrompt);
+    if (!rawR) {
+      responseText = "Ops, não obtive resposta da IA.";
+    } else if (rawR.startsWith('[ERRO]')) {
+      responseText = `Tive um problema na conexão com o Google Gemini. Motivo técnico: ${rawR}`;
+    } else {
+      responseText = rawR;
+    }
   }
 
   // Remove typing
