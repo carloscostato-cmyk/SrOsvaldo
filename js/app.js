@@ -25,18 +25,18 @@ if (typeof pdfjsLib !== 'undefined') {
 const GEMINI_MODEL = 'gemini-1.5-flash';
 const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${k}`;
 
-async function callGemini(prompt) {
+async function callGemini(prompt, isJson = false) {
   if (!AppState.geminiApiKey) return null;
   try {
+    const config = { temperature: 0.7, maxOutputTokens: 2048 };
+    if (isJson) {
+      config.responseMimeType = "application/json";
+    }
     const r = await fetch(GEMINI_URL(AppState.geminiApiKey), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contents: [{ parts: [{ text: prompt }] }], 
-        generationConfig: { 
-          temperature: 0.7, 
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json" 
-        } 
+        generationConfig: config 
       }),
     });
     if (!r.ok) throw new Error(`API ${r.status}`);
@@ -314,7 +314,7 @@ async function analyzeWithGemini(text, linkedin = '') {
 Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. Além disso, crie 3 vagas ideais na chave recommendedJobs que sejam EXATAMENTE para o perfil da pessoa (não crie vagas genéricas). ${extraLinkedin}
 
 Currículo: ${text}`;
-  const r = await callGemini(prompt);
+  const r = await callGemini(prompt, true);
   if (!r || r.startsWith('[ERRO]')) {
     console.error('Gemini falhou na análise de currículo:', r);
     return null;
