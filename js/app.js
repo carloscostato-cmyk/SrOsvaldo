@@ -50,6 +50,40 @@ function pickBestGeminiModel(models) {
   return models[0].name || '';
 }
 
+function classifyGeminiError(message = '') {
+  const msg = String(message || '');
+  const lower = msg.toLowerCase();
+  const retryMatch = msg.match(/retry in\s*([0-9.]+)s/i);
+  const retryInSeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+
+  if (/quota exceeded|rate[- ]?limit|limit:\s*0|billing|current quota/.test(lower)) {
+    const extra = retryInSeconds ? ` Tente novamente em aproximadamente ${retryInSeconds}s.` : '';
+    return {
+      reason: 'quota',
+      userMessage: `Chave valida, mas sem cota ativa no projeto Google (quota/rate limit).${extra}`,
+    };
+  }
+
+  if (/not found|not supported for generatecontent|model/.test(lower)) {
+    return {
+      reason: 'model',
+      userMessage: 'A chave nao possui um modelo Gemini compativel disponivel neste momento.',
+    };
+  }
+
+  if (/api key|permission|unauthorized|forbidden|invalid/.test(lower)) {
+    return {
+      reason: 'auth',
+      userMessage: 'Chave invalida ou sem permissao para usar a API Gemini.',
+    };
+  }
+
+  return {
+    reason: 'unknown',
+    userMessage: msg || 'Falha ao validar chave Gemini.',
+  };
+}
+
 async function resolveGeminiModel(key) {
   try {
     const r = await fetch(GEMINI_MODELS_URL(key));
@@ -154,7 +188,10 @@ function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.r
 async function validateGeminiApiKey(key) {
   try {
     const modelResolution = await resolveGeminiModel(key);
-    if (!modelResolution.ok) return modelResolution;
+    if (!modelResolution.ok) {
+      const details = classifyGeminiError(modelResolution.message);
+      return { ok: false, reason: details.reason, message: details.userMessage };
+    }
 
     const r = await fetch(GEMINI_URL(modelResolution.model, key), {
       method: 'POST',
@@ -171,9 +208,10 @@ async function validateGeminiApiKey(key) {
       const j = JSON.parse(errorText);
       if (j?.error?.message) message = j.error.message;
     } catch (e) {}
-    return { ok: false, message };
+    const details = classifyGeminiError(message);
+    return { ok: false, reason: details.reason, message: details.userMessage };
   } catch (e) {
-    return { ok: false, message: 'Falha de conexão durante a validação da chave.' };
+    return { ok: false, reason: 'unknown', message: 'Falha de conexão durante a validação da chave.' };
   }
 }
 
@@ -191,15 +229,21 @@ async function saveApiKey() {
   showToast('Validando chave Gemini...', 'info');
   const validation = await validateGeminiApiKey(k);
   if (!validation.ok) {
-    AppState.geminiApiKey = '';
-    AppState.geminiModel = '';
+    if (validation.reason === 'quota') {
+      AppState.geminiApiKey = k;
+      AppState.geminiModel = '';
+      localStorage.setItem('sr_osvaldo_gemini_key', k);
+    } else {
+      AppState.geminiApiKey = '';
+      AppState.geminiModel = '';
+      localStorage.removeItem('sr_osvaldo_gemini_key');
+    }
     AppState.geminiApiVerified = false;
-    localStorage.removeItem('sr_osvaldo_gemini_key');
     localStorage.removeItem('sr_osvaldo_gemini_model');
     updateApiStatus();
     setApiSaveButtonLoading(false);
     setApiKeyFeedback(`Erro ao validar chave: ${validation.message}`, 'error');
-    showToast('Nao foi possivel validar a chave Gemini. Verifique e tente novamente.', 'error');
+    showToast(validation.reason === 'quota' ? 'Chave valida, mas sem cota ativa no projeto.' : 'Nao foi possivel validar a chave Gemini. Verifique e tente novamente.', 'error');
     return;
   }
 
