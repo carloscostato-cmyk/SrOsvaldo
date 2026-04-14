@@ -17,7 +17,7 @@ O projeto é um aplicativo web estático (HTML + CSS + JavaScript), sem backend 
 Toda a execução acontece no navegador do usuário.
 
 A IA é habilitada via chave de API do Google Gemini informada no modal do app.
-Quando a chave não está disponível, o sistema usa fallbacks locais para manter o fluxo funcionando.
+Sem chave Gemini validada, os fluxos de análise, otimização e geração de vagas ficam bloqueados.
 
 ## Funcionalidades Principais
 
@@ -56,7 +56,7 @@ Na prática, o processamento central ocorre por prompt no Gemini, retornando JSO
 ### 4. Otimização de Currículo
 
 - Usa melhorias retornadas pela IA
-- Se necessário, aplica fallback local heurístico
+- Se a IA não retornar melhorias, o app solicita nova tentativa
 - Exibe resumo de alterações por tipo:
   - added
   - modified
@@ -69,10 +69,9 @@ Na prática, o processamento central ocorre por prompt no Gemini, retornando JSO
 
 ### 6. Vagas e Cartas
 
-- Usa vagas recomendadas pela IA (quando disponíveis)
-- Senão, usa base local (`JOBS_DB`)
-- Calcula match por skills e contexto do currículo
-- Gera cartas (Gemini para topo da lista, fallback local para restante)
+- Usa vagas recomendadas pela IA
+- Calcula e exibe compatibilidade retornada pela IA
+- Gera cartas de apresentação via IA
 
 ### 7. Coach de Carreira
 
@@ -132,7 +131,8 @@ Exemplo com VS Code Live Server:
 1. Acesse: https://aistudio.google.com/apikey
 2. Gere sua chave
 3. No app, clique em "IA" e cole a chave
-4. A chave é salva no navegador em `localStorage` (`sr_osvaldo_gemini_key`)
+4. O app valida a chave em tempo real antes de ativar o status verde
+5. A chave é salva no navegador em `localStorage` (`sr_osvaldo_gemini_key`)
 
 ## Deploy e Publicação
 

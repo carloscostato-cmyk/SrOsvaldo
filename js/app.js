@@ -301,6 +301,12 @@ async function startAnalysis() {
     return;
   }
 
+  if (!AppState.geminiApiVerified) {
+    showToast('Configure e valide a chave Gemini para iniciar a análise.', 'error');
+    showApiKeyModal();
+    return;
+  }
+
   AppState.uploadLinkedin = document.getElementById('uploadLinkedin')?.value.trim() || '';
   AppState.resumeText = text;
   
@@ -329,65 +335,52 @@ function showAgentsOverlay() {
       step++; setTimeout(next, 700 + Math.random() * 400);
     } else {
       document.getElementById('analyzingText').textContent = 'Gerando relatório final...';
-      setTimeout(async () => { await performAnalysis(); ov.classList.remove('visible'); navigateTo('analysis'); }, 500);
+      setTimeout(async () => {
+        const ok = await performAnalysis();
+        ov.classList.remove('visible');
+        if (ok) navigateTo('analysis');
+      }, 500);
     }
   }
   next();
 }
 
 async function performAnalysis() {
-  const text = AppState.resumeText, low = text.toLowerCase(), len = text.length;
-
-  if (AppState.geminiApiVerified) {
-    try {
-      showToast('Enviando para inteligência artificial...', 'info');
-      const apiResp = await analyzeWithGemini(text, AppState.uploadLinkedin);
-      const r = typeof apiResp === 'object' && apiResp !== null ? apiResp : null;
-      if (r) { 
-        AppState.analysisResult = r; 
-        if (r.profile && r.profile.name) {
-          const pName = r.profile.name || 'Candidato';
-          const parts = pName.split(' ');
-          r.profile.initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : pName.substring(0, 2)).toUpperCase();
-          if (!r.profile.skills) r.profile.skills = [];
-          if (!r.profile.level) r.profile.level = 'Sênior';
-          if (!r.profile.role) r.profile.role = 'Especialista';
-          AppState.candidateProfile = r.profile;
-        }
-        return; 
-      }
-    } catch (e) { console.error('Gemini fallback:', e); }
+  if (!AppState.geminiApiVerified) {
+    showToast('IA nao validada. Configure a chave Gemini para analisar.', 'error');
+    showApiKeyModal();
+    return false;
   }
 
-  // Local fallback extrema falha (quando sem API Key ou erro)
-  const userEmail = localStorage.getItem('sr_osvaldo_user') || '';
-  const fallbackName = userEmail ? userEmail.split('@')[0].split('.').map(n => n.charAt(0).toUpperCase() + n.slice(1)).join(' ') : 'Candidato';
-  const fallbackInitials = fallbackName.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
-  
-  AppState.candidateProfile = { 
-    name: fallbackName, 
-    role: 'Profissional de Tecnologia', 
-    level: 'Sênior', 
-    skills: ['Análise', 'Tecnologia'], 
-    initials: fallbackInitials, 
-    linkedinUrl: AppState.uploadLinkedin || '' 
-  };
-  const sc = (kws, base, mul, bonus) => { let s = base + bonus; kws.forEach(k => { if (low.includes(k)) s += mul; }); if (len < 200) s -= 20; if (len > 1000) s += 10; return clamp(s, 10, 100); };
-  const scores = {
-    formatting: sc(['experiência','formação','habilidade','educação','objetivo','contato','perfil'], 50, 4, len > 500 ? 15 : 0),
-    experience: sc(['experiência','empresa','cargo','projetos','desenvolvedor','analista','senior','anos'], 40, 5, low.match(/\d+%/) ? 10 : 0),
-    education: sc(['graduação','bacharelado','mestrado','doutorado','mba','universidade','certificação','curso'], 40, 5, 0),
-    skills: sc(['javascript','python','java','react','node','sql','aws','docker','git','html','css','linux','agile','scrum','figma'], 35, 4, 0),
-    languages: sc(['inglês','english','espanhol','francês','fluente','avançado','intermediário'], 30, 7, 0),
-    market: sc(['liderança','comunicação','trabalho em equipe','proativo','inovação','resultado','meta'], 35, 5, 0),
-    objective: sc(['objetivo','resumo','perfil','sobre mim','busco','atuar','contribuir'], 35, 7, 0),
-  };
-  const totalScore = Math.round(Object.entries(scores).reduce((a, [, v]) => a + v, 0) / 7);
+  try {
+    showToast('Enviando para inteligência artificial...', 'info');
+    const apiResp = await analyzeWithGemini(AppState.resumeText, AppState.uploadLinkedin);
+    const r = typeof apiResp === 'object' && apiResp !== null ? apiResp : null;
+    if (!r) {
+      AppState.analysisResult = null;
+      AppState.candidateProfile = null;
+      showToast('A analise com IA falhou. Tente novamente com uma chave valida.', 'error');
+      return false;
+    }
 
-  const gPool = ['Currículo bem organizado','Experiência relevante','Skills alinhadas ao mercado','Formação sólida','Verbos de ação utilizados','Contato completo','Progressão de carreira','Certificações mencionadas','Projetos demonstrados','Métricas quantificáveis'];
-  const bPool = ['Falta resumo profissional','Descrições genéricas sem métricas','Faltam keywords ATS','Informações desatualizadas','Sem links profissionais','Sem soft skills','Objetivo vago','Formatação inconsistente','Faltam certificações recentes','Idiomas sem proficiência','Habilidades desorganizadas'];
-
-  AppState.analysisResult = { totalScore, scores, goodFeedback: shuffle(gPool).slice(0, totalScore > 70 ? 5 : 4), badFeedback: shuffle(bPool).slice(0, totalScore > 70 ? 3 : 5) };
+    AppState.analysisResult = r;
+    if (r.profile && r.profile.name) {
+      const pName = r.profile.name || 'Candidato';
+      const parts = pName.split(' ');
+      r.profile.initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : pName.substring(0, 2)).toUpperCase();
+      if (!r.profile.skills) r.profile.skills = [];
+      if (!r.profile.level) r.profile.level = 'Sênior';
+      if (!r.profile.role) r.profile.role = 'Especialista';
+      AppState.candidateProfile = r.profile;
+    }
+    return true;
+  } catch (e) {
+    console.error('Gemini analysis error:', e);
+    AppState.analysisResult = null;
+    AppState.candidateProfile = null;
+    showToast('A analise com IA falhou. Verifique sua chave e tente novamente.', 'error');
+    return false;
+  }
 }
 
 async function analyzeWithGemini(text, linkedin = '') {
@@ -446,7 +439,15 @@ function renderFeedback(good, bad) {
 
 // ===== OPTIMIZE =====
 async function optimizeResume() {
-  if (!AppState.analysisResult) return;
+  if (!AppState.analysisResult) {
+    showToast('Faça a análise com IA antes de otimizar.', 'warning');
+    return;
+  }
+  if (!AppState.geminiApiVerified) {
+    showToast('IA nao validada. Configure a chave para otimizar.', 'error');
+    showApiKeyModal();
+    return;
+  }
   const ov = document.getElementById('analyzingOverlay');
   document.getElementById('analyzingText').textContent = 'Otimizando currículo...';
   document.getElementById('analyzingSubtext').textContent = 'Agentes aplicando melhorias';
@@ -512,15 +513,8 @@ async function genOptimized() {
   }
 
   if (!imps.length) {
-    const bad = r.badFeedback || [];
-    if (bad.some(f => f.includes('resumo'))) imps.push({ section:'Resumo Profissional', type:'added', text:`Profissional ${p.level} com experiência como ${p.role}. Foco em resultados com expertise em ${p.skills.slice(0,3).join(', ')}.` });
-    if (bad.some(f => f.includes('ATS')||f.includes('keyword'))) imps.push({ section:'Palavras-chave ATS', type:'added', text:'Desenvolvimento de software, metodologias ágeis, resolução de problemas.' });
-    if (bad.some(f => f.includes('soft'))) imps.push({ section:'Competências', type:'added', text:'Comunicação eficaz, liderança, pensamento analítico, adaptabilidade.' });
-    if (bad.some(f => f.includes('link'))) imps.push({ section:'Links', type:'added', text:'Adicione LinkedIn, GitHub e portfolio.' });
-    if (bad.some(f => f.includes('Idiomas')||f.includes('idioma'))) imps.push({ section:'Idiomas', type:'added', text:'Português (Nativo) | Inglês (nível) | Espanhol (nível)' });
-    if (bad.some(f => f.includes('métricas')||f.includes('genéricas'))) imps.push({ section:'Experiência', type:'modified', text:'Reescreva com métricas quantificáveis.' });
-    if (bad.some(f => f.includes('certificações'))) imps.push({ section:'Certificações', type:'added', text:'Adicione certificações relevantes para sua área.' });
-    if (!imps.length) imps.push({ section:'Geral', type:'modified', text:'Ajustes de padronização aplicados.' });
+    showToast('Nao foi possivel gerar melhorias com IA. Tente novamente.', 'error');
+    return;
   }
 
   AppState.optimizedResume = { original: AppState.resumeText, improvements: imps, profile: p };
@@ -612,25 +606,6 @@ function calcMatch(job) {
   return clamp(Math.round((matched / Math.max(jt.length, 1)) * 100), 5, 98);
 }
 
-function genLocalCoverLetter(job) {
-  const p = AppState.candidateProfile || { name:'Candidato', role:'Profissional', skills:[], level:'Pleno' };
-  const matchingSkills = job.tags.filter(t => p.skills.map(s=>s.toLowerCase()).includes(t.toLowerCase()));
-  return `Prezados recrutadores da ${job.company},
-
-Escrevo para expressar meu interesse na vaga de ${job.title}. Como ${p.role} de nível ${p.level}, minha experiência com ${(matchingSkills.length ? matchingSkills.join(', ') : job.tags.slice(0,3).join(', '))} está diretamente alinhada com os requisitos da posição.
-
-Ao longo da minha carreira, desenvolvi competências sólidas em:
-• Desenvolvimento de soluções técnicas robustas e escaláveis
-• Colaboração efetiva com equipes multidisciplinares
-• Entrega de resultados mensuráveis dentro dos prazos
-• Implementação de boas práticas e documentação
-
-Estou entusiasmado com a oportunidade de contribuir na ${job.company} e fico à disposição para uma conversa.
-
-Atenciosamente,
-${p.name}`;
-}
-
 async function renderJobs() {
   const needResume = document.getElementById('jobsNeedResume');
   const autoContent = document.getElementById('jobsAutoContent');
@@ -646,30 +621,29 @@ async function renderJobs() {
   document.getElementById('jobsProfileRole2').textContent = p.role;
   document.getElementById('jobsProfileSkills2').textContent = p.skills.slice(0, 6).join(', ');
 
-  // Calculate match and filter only relevant (>15%)
-  let baseJobs = [];
+  let jobs = [];
   if (AppState.analysisResult && AppState.analysisResult.recommendedJobs && AppState.analysisResult.recommendedJobs.length > 0) {
-    baseJobs = AppState.analysisResult.recommendedJobs.map((j, i) => ({ ...j, id: 990 + i, match: j.match || 98 }));
-  } else {
-    baseJobs = JOBS_DB.map(j => ({ ...j, match: calcMatch(j) })).filter(j => j.match > 15).sort((a, b) => b.match - a.match);
+    jobs = AppState.analysisResult.recommendedJobs.map((j, i) => ({ ...j, id: 990 + i, match: j.match || 98 }));
   }
-  let jobs = baseJobs;
+
+  if (!jobs.length) {
+    countEl.innerHTML = '<strong>0</strong> vagas retornadas pela IA para este perfil';
+    listEl.innerHTML = '<div class="jobs-empty">A IA nao retornou vagas nesta analise. Refaça a analise para gerar novas vagas.</div>';
+    showToast('Nenhuma vaga retornada pela IA nesta analise.', 'warning');
+    return;
+  }
 
   countEl.innerHTML = `<strong>${jobs.length}</strong> vagas perfeitas geradas pela IA para o seu perfil`;
 
-  // Generate cover letters (Gemini for top 3, local for rest)
+  // Generate cover letters (somente IA)
   showToast('Gerando cartas de apresentação...', 'info');
 
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i];
     if (!AppState.jobCoverLetters[job.id]) {
-      if (i < 3 && AppState.geminiApiVerified) {
-        const prompt = `Escreva uma carta de apresentação curta (150 palavras) em português para "${job.title}" na "${job.company}". Candidato: ${p.name}, ${p.role} ${p.level}, skills: ${p.skills.join(', ')}. Vaga pede: ${job.tags.join(', ')}. Seja direto e profissional.`;
-        const ai = await callGemini(prompt);
-        AppState.jobCoverLetters[job.id] = ai || genLocalCoverLetter(job);
-      } else {
-        AppState.jobCoverLetters[job.id] = genLocalCoverLetter(job);
-      }
+      const prompt = `Escreva uma carta de apresentação curta (150 palavras) em português para "${job.title}" na "${job.company}". Candidato: ${p.name}, ${p.role} ${p.level}, skills: ${p.skills.join(', ')}. Vaga pede: ${job.tags.join(', ')}. Seja direto e profissional.`;
+      const ai = await callGemini(prompt);
+      AppState.jobCoverLetters[job.id] = ai || 'Carta nao gerada pela IA nesta tentativa.';
     }
   }
 
@@ -758,7 +732,7 @@ function applyToJob(jobId) {
 // ===== DASHBOARD =====
 function renderDashboard() {
   const apps = AppState.applications;
-  const matched = AppState.candidateProfile ? JOBS_DB.filter(j => calcMatch(j) >= 50).length : 0;
+  const matched = AppState.analysisResult?.recommendedJobs?.length || 0;
   document.getElementById('statJobs').textContent = matched;
   document.getElementById('statApplied').textContent = apps.length;
   document.getElementById('statViewed').textContent = apps.filter(a => a.status === 'viewed').length;
