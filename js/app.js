@@ -25,13 +25,48 @@ if (typeof pdfjsLib !== 'undefined') {
 }
 
 // IA SERVICE (backend/proxy)
-const AI_PROXY_ENDPOINT = (window.SR_OSVALDO_AI_ENDPOINT || localStorage.getItem('sr_osvaldo_ai_endpoint') || '').trim();
-const AI_BASE = AI_PROXY_ENDPOINT.replace(/\/$/, '');
-const AI_HEALTH_URL = AI_BASE ? `${AI_BASE}/api/health` : '';
-const AI_GEMINI_URL = AI_BASE ? `${AI_BASE}/api/gemini` : '';
+function getAiProxyEndpoint() {
+  return String(window.SR_OSVALDO_AI_ENDPOINT || localStorage.getItem('sr_osvaldo_ai_endpoint') || '').trim().replace(/\/$/, '');
+}
+
+function getAiHealthUrl() {
+  const base = getAiProxyEndpoint();
+  return base ? `${base}/api/health` : '';
+}
+
+function getAiGeminiUrl() {
+  const base = getAiProxyEndpoint();
+  return base ? `${base}/api/gemini` : '';
+}
 
 function isAiEndpointConfigured() {
-  return Boolean(AI_BASE && /^https?:\/\//i.test(AI_BASE));
+  const endpoint = getAiProxyEndpoint();
+  return Boolean(endpoint && /^https?:\/\//i.test(endpoint));
+}
+
+function getAiEndpointInput() {
+  return document.getElementById('apiEndpointInput');
+}
+
+function getCurrentAiEndpointValue() {
+  const input = getAiEndpointInput();
+  if (input && typeof input.value === 'string') {
+    return input.value.trim();
+  }
+  return getAiProxyEndpoint();
+}
+
+function saveAiEndpoint(endpoint) {
+  const normalized = String(endpoint || '').trim().replace(/\/$/, '');
+  if (normalized) {
+    localStorage.setItem('sr_osvaldo_ai_endpoint', normalized);
+    window.SR_OSVALDO_AI_ENDPOINT = normalized;
+  } else {
+    localStorage.removeItem('sr_osvaldo_ai_endpoint');
+    window.SR_OSVALDO_AI_ENDPOINT = '';
+  }
+  updateApiStatus();
+  return normalized;
 }
 
 function classifyAiServiceError(message = '') {
@@ -51,9 +86,10 @@ function classifyAiServiceError(message = '') {
 }
 
 async function callGemini(prompt, isJson = false) {
-  if (!AppState.aiServiceReady || !AI_GEMINI_URL) return null;
+  const aiGeminiUrl = getAiGeminiUrl();
+  if (!AppState.aiServiceReady || !aiGeminiUrl) return null;
   try {
-    const r = await fetch(AI_GEMINI_URL, {
+    const r = await fetch(aiGeminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, isJson }),
@@ -107,9 +143,13 @@ function setApiCheckButtonLoading(isLoading) {
 
 function showApiKeyModal() {
   document.getElementById('apiKeyModal').classList.add('visible');
+  const input = getAiEndpointInput();
+  if (input) {
+    input.value = getAiProxyEndpoint();
+  }
   setApiCheckButtonLoading(false);
   if (!isAiEndpointConfigured()) {
-    setApiModalFeedback('Endpoint de IA nao configurado. Defina window.SR_OSVALDO_AI_ENDPOINT em index.html.', 'error');
+    setApiModalFeedback('Configure a URL do Worker para ativar a IA. Nenhuma chave e pedida no navegador.', 'error');
     return;
   }
   const model = AppState.aiServiceModel ? ` Modelo: ${AppState.aiServiceModel}.` : '';
@@ -127,7 +167,7 @@ async function checkAiServiceConnection(showFeedback = false) {
     AppState.aiServiceMessage = 'Endpoint de IA nao configurado.';
     updateApiStatus();
     if (showFeedback) {
-      setApiModalFeedback('Endpoint de IA nao configurado. Defina window.SR_OSVALDO_AI_ENDPOINT em index.html.', 'error');
+      setApiModalFeedback('Configure a URL do Worker antes de testar a IA.', 'error');
       showToast('Endpoint de IA nao configurado.', 'error');
     }
     return false;
@@ -135,7 +175,7 @@ async function checkAiServiceConnection(showFeedback = false) {
 
   setApiCheckButtonLoading(true);
   try {
-    const r = await fetch(AI_HEALTH_URL, { method: 'GET' });
+    const r = await fetch(getAiHealthUrl(), { method: 'GET' });
     const data = await r.json();
     if (!r.ok || !data?.ok) {
       throw new Error(data?.message || `Erro ${r.status} no health check de IA.`);
@@ -186,6 +226,21 @@ function updateApiStatus() {
 
 async function restoreAndValidateSavedApiKey() {
   return checkAiServiceConnection(false);
+}
+
+async function saveEndpointAndTest() {
+  const endpoint = saveAiEndpoint(getCurrentAiEndpointValue());
+  if (!endpoint) {
+    setApiModalFeedback('Informe a URL do Worker para continuar.', 'error');
+    showToast('Informe a URL do Worker.', 'error');
+    return false;
+  }
+
+  const ok = await checkAiServiceConnection(true);
+  if (!ok) {
+    setApiModalFeedback('Endpoint salvo, mas a IA ainda nao respondeu. Verifique a URL e o Worker.', 'error');
+  }
+  return ok;
 }
 
 // JOBS DB

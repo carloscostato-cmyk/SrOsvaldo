@@ -74,6 +74,10 @@
         <p style="margin-bottom:16px;font-size:.92rem;color:var(--text-secondary);line-height:1.6">
           O Sr. OSvaldo usa IA via serviço seguro no servidor.
         </p>
+        <div style="margin-bottom:16px">
+          <label for="apiEndpointInput" style="display:block;margin-bottom:8px;font-weight:600;color:var(--text-primary);font-size:.9rem">URL do Worker</label>
+          <input id="apiEndpointInput" type="url" placeholder="https://seu-worker.seudominio.workers.dev" style="width:100%;padding:14px 16px;border-radius:12px;border:1px solid #cbd5e1;font-size:.95rem;outline:none;transition:var(--transition-base)">
+        </div>
         <div style="background:var(--primary-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:20px;font-size:.85rem;line-height:1.6">
           <strong>Sem API key no navegador:</strong><br>
           1. Chaves e modelos ficam protegidos no backend<br>
@@ -83,7 +87,8 @@
         <p id="apiKeyFeedback" class="api-feedback" aria-live="polite"></p>
       </div>
       <div class="modal-footer" style="justify-content: flex-end;">
-        <button class="btn btn-primary btn-sm" id="apiSaveBtn" onclick="checkAiServiceConnection(true)">🔄 Testar Conexao IA</button>
+        <button class="btn btn-secondary btn-sm" onclick="showApiKeyModal()">↺ Recarregar status</button>
+        <button class="btn btn-primary btn-sm" id="apiSaveBtn" onclick="saveEndpointAndTest()">💾 Salvar e testar</button>
       </div>
     </div>
   </div>

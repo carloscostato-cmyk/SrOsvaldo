@@ -142,8 +142,8 @@ Exemplo com VS Code Live Server:
   - `wrangler secret put GEMINI_API_KEY`
 3. (Opcional) restrinja origem em `cloudflare/wrangler.toml`:
   - `ALLOWED_ORIGIN = "https://carloscostato-cmyk.github.io"`
-4. No `index.html`, configure `window.SR_OSVALDO_AI_ENDPOINT` com a URL do Worker
-5. No app, clique em `IA` para testar conexão
+4. Abra o app, clique em `IA`, cole a URL do Worker no modal e use `Salvar e testar`
+5. Depois disso, o endpoint fica salvo no navegador e o app passa a usar a IA automaticamente
 
 ### Fase 2 - Segurança no Worker
 
