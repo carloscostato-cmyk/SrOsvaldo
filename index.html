@@ -61,11 +61,10 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- API Key Modal -->
-  <div class="modal-overlay" id="apiKeyModal">
-    <div class="modal" style="max-width:520px">
+  <div class="modal-overlay" id="apiKeyModal" style="background:var(--bg-body); z-index:9999;">
+    <div class="modal" style="max-width:520px; box-shadow: var(--shadow-xl); border:1px solid #e2e8f0">
       <div class="modal-header">
         <h2>🔑 Configurar IA do Sr. OSvaldo</h2>
-        <button class="modal-close" onclick="closeApiKeyModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p style="margin-bottom:16px;font-size:.92rem;color:var(--text-secondary);line-height:1.6">
@@ -80,8 +79,7 @@
         <input type="password" id="apiKeyInput" class="search-input" placeholder="Cole sua API Key do Gemini..." style="width:100%;padding-left:16px;margin-bottom:8px">
         <p style="font-size:.75rem;color:var(--text-muted)">🔒 Sua chave fica salva apenas no seu navegador.</p>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost btn-sm" onclick="closeApiKeyModal()">Depois</button>
+      <div class="modal-footer" style="justify-content: flex-end;">
         <button class="btn btn-primary btn-sm" onclick="saveApiKey()">✅ Salvar e Ativar IA</button>
       </div>
     </div>

@@ -53,12 +53,15 @@ function showApiKeyModal() { document.getElementById('apiKeyModal').classList.ad
 function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.remove('visible'); }
 function saveApiKey() {
   const k = document.getElementById('apiKeyInput').value.trim();
-  if (!k) { showToast('Cole sua API Key.', 'error'); return; }
+  if (!k || !k.startsWith('AIza') || k.length < 30) { 
+    showToast('Chave inválida! Chaves Gemini falsas não são aceitas (elas começam com AIza).', 'error'); 
+    return; 
+  }
   AppState.geminiApiKey = k;
   localStorage.setItem('sr_osvaldo_gemini_key', k);
   document.getElementById('apiStatusIcon').textContent = '🟢';
   closeApiKeyModal();
-  showToast('IA ativada com sucesso! 🧠', 'success');
+  showToast('IA ativada com sucesso! 🚀', 'success');
 }
 function updateApiStatus() { document.getElementById('apiStatusIcon').textContent = AppState.geminiApiKey ? '🟢' : '🔴'; }
 
