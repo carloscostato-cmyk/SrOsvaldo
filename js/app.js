@@ -28,7 +28,7 @@ const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/mode
 async function callGemini(prompt, isJson = false) {
   if (!AppState.geminiApiKey) return null;
   try {
-    const config = { temperature: 0.7, maxOutputTokens: 2048 };
+    const config = { temperature: 0.7, maxOutputTokens: 8192 };
     if (isJson) {
       config.responseMimeType = "application/json";
     }
@@ -38,13 +38,20 @@ async function callGemini(prompt, isJson = false) {
         contents: [{ parts: [{ text: prompt }] }], 
         generationConfig: config 
       }),
-    });
-    if (!r.ok) throw new Error(`API ${r.status}`);
+    if (!r.ok) {
+      const errText = await r.text();
+      let msg = r.status.toString();
+      try {
+        const j = JSON.parse(errText);
+        if (j.error && j.error.message) msg += ` - ${j.error.message}`;
+      } catch(e) {}
+      throw new Error(msg);
+    }
     const d = await r.json();
     return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (e) {
     console.error('Gemini:', e);
-    return `[ERRO] ${e.message}`; // Propaga o erro internamente para sabermos
+    return `[ERRO] ${e.message}`; 
   }
 }
 
@@ -311,7 +318,7 @@ async function analyzeWithGemini(text, linkedin = '') {
   const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`, sem explicação adicional):
 {"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}, "recommendedJobs": [{"title": "Cargo sugerido", "company": "Empresa Fictícia", "logo": "🏢", "logoBg": "#000000", "location": "Remoto", "salary": "Faixa", "tags": ["skill1", "skill2"], "description": "Breve descrição", "match": 95, "source": "LinkedIn", "url": "https://linkedin.com/jobs"}]}
 
-Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. Além disso, crie 3 vagas ideais na chave recommendedJobs que sejam EXATAMENTE para o perfil da pessoa (não crie vagas genéricas). ${extraLinkedin}
+Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. Além disso, crie NO MÍNIMO 15 vagas impressionantes e detalhadas na chave recommendedJobs. Quero tudo do bom e do melhor: vagas Remoto, Freelance, "Bico"/Projetos Curtos, CLT e Internacional. Todas devem ser hiper relevantes ao perfil provado no CV. ${extraLinkedin}
 
 Currículo: ${text}`;
   const r = await callGemini(prompt, true);
