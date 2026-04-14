@@ -13,9 +13,9 @@ const AppState = {
   candidateProfile: null,
   applications: [],
   jobCoverLetters: {},
-  geminiApiKey: localStorage.getItem('sr_osvaldo_gemini_key') || '',
-  geminiModel: localStorage.getItem('sr_osvaldo_gemini_model') || '',
-  geminiApiVerified: false,
+  aiServiceReady: false,
+  aiServiceMessage: 'IA indisponivel no momento.',
+  aiServiceModel: '',
 };
 
 // PDF.JS
@@ -23,142 +23,48 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
-// GEMINI
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODELS_URL = (k) => `${GEMINI_API_BASE}/models?key=${k}`;
-const GEMINI_URL = (model, k) => {
-  const normalizedModel = model.startsWith('models/') ? model : `models/${model}`;
-  return `${GEMINI_API_BASE}/${normalizedModel}:generateContent?key=${k}`;
-};
+// IA SERVICE (backend/proxy)
+const AI_PROXY_ENDPOINT = (window.SR_OSVALDO_AI_ENDPOINT || localStorage.getItem('sr_osvaldo_ai_endpoint') || '').trim();
+const AI_BASE = AI_PROXY_ENDPOINT.replace(/\/$/, '');
+const AI_HEALTH_URL = AI_BASE ? `${AI_BASE}/api/health` : '';
+const AI_GEMINI_URL = AI_BASE ? `${AI_BASE}/api/gemini` : '';
 
-function pickBestGeminiModel(models) {
-  if (!models.length) return '';
-
-  const preferredOrder = [
-    'models/gemini-2.0-flash',
-    'models/gemini-2.0-flash-lite',
-    'models/gemini-1.5-flash-latest',
-    'models/gemini-1.5-flash',
-    'models/gemini-1.5-pro',
-  ];
-
-  for (const preferred of preferredOrder) {
-    const match = models.find(m => m.name === preferred);
-    if (match) return match.name;
-  }
-
-  return models[0].name || '';
-}
-
-function classifyGeminiError(message = '') {
-  const msg = String(message || '');
-  const lower = msg.toLowerCase();
-  const retryMatch = msg.match(/retry in\s*([0-9.]+)s/i);
-  const retryInSeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
-
-  if (/quota exceeded|rate[- ]?limit|limit:\s*0|billing|current quota/.test(lower)) {
-    const extra = retryInSeconds ? ` Tente novamente em aproximadamente ${retryInSeconds}s.` : '';
-    return {
-      reason: 'quota',
-      userMessage: `Chave valida, mas sem cota ativa no projeto Google (quota/rate limit).${extra}`,
-    };
-  }
-
-  if (/not found|not supported for generatecontent|model/.test(lower)) {
-    return {
-      reason: 'model',
-      userMessage: 'A chave nao possui um modelo Gemini compativel disponivel neste momento.',
-    };
-  }
-
-  if (/api key|permission|unauthorized|forbidden|invalid/.test(lower)) {
-    return {
-      reason: 'auth',
-      userMessage: 'Chave invalida ou sem permissao para usar a API Gemini.',
-    };
-  }
-
-  return {
-    reason: 'unknown',
-    userMessage: msg || 'Falha ao validar chave Gemini.',
-  };
-}
-
-async function resolveGeminiModel(key) {
-  try {
-    const r = await fetch(GEMINI_MODELS_URL(key));
-    if (!r.ok) {
-      const errorText = await r.text();
-      let message = `Erro ${r.status} ao listar modelos Gemini.`;
-      try {
-        const j = JSON.parse(errorText);
-        if (j?.error?.message) message = j.error.message;
-      } catch (e) {}
-      return { ok: false, message };
-    }
-
-    const data = await r.json();
-    const models = (data.models || [])
-      .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'));
-
-    if (!models.length) {
-      return { ok: false, message: 'Nenhum modelo Gemini com generateContent foi encontrado para esta chave.' };
-    }
-
-    const model = pickBestGeminiModel(models);
-    if (!model) {
-      return { ok: false, message: 'Nao foi possivel selecionar um modelo Gemini valido.' };
-    }
-
-    return { ok: true, model };
-  } catch (e) {
-    return { ok: false, message: 'Falha de conexao ao buscar modelos Gemini.' };
-  }
+function isAiEndpointConfigured() {
+  return Boolean(AI_BASE && /^https?:\/\//i.test(AI_BASE));
 }
 
 async function callGemini(prompt, isJson = false) {
-  if (!AppState.geminiApiKey || !AppState.geminiApiVerified || !AppState.geminiModel) return null;
+  if (!AppState.aiServiceReady || !AI_GEMINI_URL) return null;
   try {
-    const config = { temperature: 0.7, maxOutputTokens: 8192 };
-    if (isJson) {
-      config.responseMimeType = "application/json";
-    }
-    const r = await fetch(GEMINI_URL(AppState.geminiModel, AppState.geminiApiKey), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        contents: [{ parts: [{ text: prompt }] }], 
-        generationConfig: config 
-      }),
+    const r = await fetch(AI_GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, isJson }),
     });
     if (!r.ok) {
       const errText = await r.text();
-      let msg = r.status.toString();
+      let msg = `Erro ${r.status} no servico de IA`;
       try {
         const j = JSON.parse(errText);
-        if (j.error && j.error.message) msg += ` - ${j.error.message}`;
+        if (j?.error) msg = j.error;
+        if (j?.message) msg = j.message;
       } catch(e) {}
       throw new Error(msg);
     }
     const d = await r.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    return d?.text || null;
   } catch (e) {
-    console.error('Gemini:', e);
-    const msg = String(e?.message || '');
-    if (/401|403|api key|permission|invalid/i.test(msg)) {
-      AppState.geminiApiKey = '';
-      AppState.geminiModel = '';
-      AppState.geminiApiVerified = false;
-      localStorage.removeItem('sr_osvaldo_gemini_key');
-      localStorage.removeItem('sr_osvaldo_gemini_model');
-      updateApiStatus();
-      showToast('Chave Gemini invalida ou expirada. Configure novamente.', 'error');
-    }
+    console.error('IA Service:', e);
+    AppState.aiServiceReady = false;
+    AppState.aiServiceMessage = String(e?.message || 'Falha no servico de IA.');
+    updateApiStatus();
+    showToast('Servico de IA indisponivel no momento.', 'error');
     return `[ERRO] ${e.message}`; 
   }
 }
 
-// API KEY
-function setApiKeyFeedback(message = '', type = 'info') {
+// IA STATUS MODAL
+function setApiModalFeedback(message = '', type = 'info') {
   const el = document.getElementById('apiKeyFeedback');
   if (!el) return;
   if (!message) {
@@ -170,137 +76,94 @@ function setApiKeyFeedback(message = '', type = 'info') {
   el.className = `api-feedback visible ${type}`;
 }
 
-function setApiSaveButtonLoading(isLoading) {
+function setApiCheckButtonLoading(isLoading) {
   const btn = document.getElementById('apiSaveBtn');
   if (!btn) return;
   btn.disabled = isLoading;
-  btn.textContent = isLoading ? '⏳ Validando chave...' : '✅ Salvar e Ativar IA';
+  btn.textContent = isLoading ? '⏳ Testando conexao...' : '🔄 Testar Conexao IA';
 }
 
 function showApiKeyModal() {
   document.getElementById('apiKeyModal').classList.add('visible');
-  document.getElementById('apiKeyInput').value = AppState.geminiApiKey;
-  setApiKeyFeedback('');
-  setApiSaveButtonLoading(false);
+  setApiCheckButtonLoading(false);
+  if (!isAiEndpointConfigured()) {
+    setApiModalFeedback('Endpoint de IA nao configurado. Defina window.SR_OSVALDO_AI_ENDPOINT em index.html.', 'error');
+    return;
+  }
+  const model = AppState.aiServiceModel ? ` Modelo: ${AppState.aiServiceModel}.` : '';
+  const current = AppState.aiServiceReady
+    ? `Servico de IA conectado.${model}`
+    : (AppState.aiServiceMessage || 'Servico de IA ainda nao conectado.');
+  setApiModalFeedback(current, AppState.aiServiceReady ? 'success' : 'info');
 }
 function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.remove('visible'); }
 
-async function validateGeminiApiKey(key) {
-  try {
-    const modelResolution = await resolveGeminiModel(key);
-    if (!modelResolution.ok) {
-      const details = classifyGeminiError(modelResolution.message);
-      return { ok: false, reason: details.reason, message: details.userMessage };
-    }
-
-    const r = await fetch(GEMINI_URL(modelResolution.model, key), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Responda apenas: OK' }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 8 },
-      }),
-    });
-    if (r.ok) return { ok: true, model: modelResolution.model };
-    const errorText = await r.text();
-    let message = `Erro ${r.status} ao validar a chave.`;
-    try {
-      const j = JSON.parse(errorText);
-      if (j?.error?.message) message = j.error.message;
-    } catch (e) {}
-    const details = classifyGeminiError(message);
-    return { ok: false, reason: details.reason, message: details.userMessage };
-  } catch (e) {
-    return { ok: false, reason: 'unknown', message: 'Falha de conexão durante a validação da chave.' };
-  }
-}
-
-async function saveApiKey() {
-  const k = document.getElementById('apiKeyInput').value.trim();
-  if (!k || !k.startsWith('AIza') || k.length < 30) { 
-    setApiKeyFeedback('Chave inválida. Ela deve começar com AIza e ter tamanho válido.', 'error');
-    showToast('Chave inválida! Chaves Gemini falsas não são aceitas (elas começam com AIza).', 'error'); 
-    return; 
-  }
-
-  setApiSaveButtonLoading(true);
-  setApiKeyFeedback('Validando chave no Google Gemini...', 'info');
-  document.getElementById('apiStatusIcon').textContent = '🟡';
-  showToast('Validando chave Gemini...', 'info');
-  const validation = await validateGeminiApiKey(k);
-  if (!validation.ok) {
-    if (validation.reason === 'quota') {
-      AppState.geminiApiKey = k;
-      AppState.geminiModel = '';
-      localStorage.setItem('sr_osvaldo_gemini_key', k);
-    } else {
-      AppState.geminiApiKey = '';
-      AppState.geminiModel = '';
-      localStorage.removeItem('sr_osvaldo_gemini_key');
-    }
-    AppState.geminiApiVerified = false;
-    localStorage.removeItem('sr_osvaldo_gemini_model');
+async function checkAiServiceConnection(showFeedback = false) {
+  if (!isAiEndpointConfigured()) {
+    AppState.aiServiceReady = false;
+    AppState.aiServiceModel = '';
+    AppState.aiServiceMessage = 'Endpoint de IA nao configurado.';
     updateApiStatus();
-    setApiSaveButtonLoading(false);
-    setApiKeyFeedback(`Erro ao validar chave: ${validation.message}`, 'error');
-    showToast(validation.reason === 'quota' ? 'Chave valida, mas sem cota ativa no projeto.' : 'Nao foi possivel validar a chave Gemini. Verifique e tente novamente.', 'error');
-    return;
+    if (showFeedback) {
+      setApiModalFeedback('Endpoint de IA nao configurado. Defina window.SR_OSVALDO_AI_ENDPOINT em index.html.', 'error');
+      showToast('Endpoint de IA nao configurado.', 'error');
+    }
+    return false;
   }
 
-  AppState.geminiApiKey = k;
-  AppState.geminiModel = validation.model || '';
-  AppState.geminiApiVerified = true;
-  localStorage.setItem('sr_osvaldo_gemini_key', k);
-  localStorage.setItem('sr_osvaldo_gemini_model', AppState.geminiModel);
-  updateApiStatus();
-  setApiSaveButtonLoading(false);
-  const modelName = (AppState.geminiModel || '').replace('models/', '');
-  setApiKeyFeedback(`Chave validada com sucesso. Modelo ativo: ${modelName}.`, 'success');
-  closeApiKeyModal();
-  showToast('IA ativada com sucesso! 🚀', 'success');
+  setApiCheckButtonLoading(true);
+  try {
+    const r = await fetch(AI_HEALTH_URL, { method: 'GET' });
+    const data = await r.json();
+    if (!r.ok || !data?.ok) {
+      throw new Error(data?.message || `Erro ${r.status} no health check de IA.`);
+    }
+
+    AppState.aiServiceReady = true;
+    AppState.aiServiceModel = data.model || '';
+    AppState.aiServiceMessage = 'Servico de IA conectado.';
+    updateApiStatus();
+    if (showFeedback) {
+      const model = AppState.aiServiceModel ? ` Modelo: ${AppState.aiServiceModel}.` : '';
+      setApiModalFeedback(`Servico de IA conectado com sucesso.${model}`, 'success');
+      showToast('Conexao com IA ativa.', 'success');
+    }
+    return true;
+  } catch (e) {
+    AppState.aiServiceReady = false;
+    AppState.aiServiceModel = '';
+    AppState.aiServiceMessage = String(e?.message || 'Falha ao conectar no servico de IA.');
+    updateApiStatus();
+    if (showFeedback) {
+      setApiModalFeedback(`Erro na conexao IA: ${AppState.aiServiceMessage}`, 'error');
+      showToast('Falha ao conectar no servico de IA.', 'error');
+    }
+    return false;
+  } finally {
+    setApiCheckButtonLoading(false);
+  }
 }
+
 function updateApiStatus() {
   const icon = document.getElementById('apiStatusIcon');
   const btn = document.getElementById('apiStatusBtn');
   if (!icon) return;
-  if (!AppState.geminiApiKey) {
+  if (!isAiEndpointConfigured()) {
     icon.textContent = '🔴';
-    if (btn) btn.title = 'IA desligada';
+    if (btn) btn.title = 'Endpoint IA nao configurado';
     return;
   }
-  if (AppState.geminiApiVerified) {
+  if (AppState.aiServiceReady) {
     icon.textContent = '🟢';
-    const modelName = (AppState.geminiModel || '').replace('models/', '');
-    if (btn) btn.title = modelName ? `IA ativa (${modelName})` : 'IA validada e ativa';
+    if (btn) btn.title = AppState.aiServiceModel ? `IA ativa (${AppState.aiServiceModel})` : 'IA ativa';
     return;
   }
   icon.textContent = '🟡';
-  if (btn) btn.title = 'IA aguardando validacao';
+  if (btn) btn.title = 'IA conectando';
 }
 
 async function restoreAndValidateSavedApiKey() {
-  if (!AppState.geminiApiKey) {
-    AppState.geminiModel = '';
-    AppState.geminiApiVerified = false;
-    updateApiStatus();
-    return;
-  }
-  AppState.geminiApiVerified = false;
-  updateApiStatus();
-  const validation = await validateGeminiApiKey(AppState.geminiApiKey);
-  if (validation.ok) {
-    AppState.geminiModel = validation.model || AppState.geminiModel;
-    if (AppState.geminiModel) localStorage.setItem('sr_osvaldo_gemini_model', AppState.geminiModel);
-    AppState.geminiApiVerified = true;
-    updateApiStatus();
-    return;
-  }
-  AppState.geminiApiKey = '';
-  AppState.geminiModel = '';
-  AppState.geminiApiVerified = false;
-  localStorage.removeItem('sr_osvaldo_gemini_key');
-  localStorage.removeItem('sr_osvaldo_gemini_model');
-  updateApiStatus();
+  return checkAiServiceConnection(false);
 }
 
 // JOBS DB
@@ -455,8 +318,8 @@ async function startAnalysis() {
     return;
   }
 
-  if (!AppState.geminiApiVerified) {
-    showToast('Configure e valide a chave Gemini para iniciar a análise.', 'error');
+  if (!AppState.aiServiceReady) {
+    showToast('Servico de IA indisponivel. Aguarde e tente novamente.', 'error');
     showApiKeyModal();
     return;
   }
@@ -500,8 +363,8 @@ function showAgentsOverlay() {
 }
 
 async function performAnalysis() {
-  if (!AppState.geminiApiVerified) {
-    showToast('IA nao validada. Configure a chave Gemini para analisar.', 'error');
+  if (!AppState.aiServiceReady) {
+    showToast('Servico de IA indisponivel para analise.', 'error');
     showApiKeyModal();
     return false;
   }
@@ -597,8 +460,8 @@ async function optimizeResume() {
     showToast('Faça a análise com IA antes de otimizar.', 'warning');
     return;
   }
-  if (!AppState.geminiApiVerified) {
-    showToast('IA nao validada. Configure a chave para otimizar.', 'error');
+  if (!AppState.aiServiceReady) {
+    showToast('Servico de IA indisponivel para otimizar.', 'error');
     showApiKeyModal();
     return;
   }
@@ -660,7 +523,7 @@ async function genOptimized() {
   const r = AppState.analysisResult, p = AppState.candidateProfile || { name:'Candidato', role:'Profissional', skills:[], level:'Pleno' };
   let imps = r.improvements || [];
 
-  if (!imps.length && AppState.geminiApiVerified) {
+  if (!imps.length && AppState.aiServiceReady) {
     const pr = `Liste melhorias para este currículo em JSON puro (sem \`\`\`): [{"section":"nome","type":"added|modified|removed","text":"descrição"}]. Mínimo 5 melhorias. Currículo: ${AppState.resumeText}`;
     const ai = await callGemini(pr);
     if (ai) try { imps = JSON.parse(ai.replace(/```json?\s*/g, '').replace(/```/g, '').trim()); } catch (e) {}
@@ -936,8 +799,7 @@ function handleLogin() {
   document.getElementById('loginGate').classList.add('hidden');
   showToast('Bem-vindo! 🎩', 'success');
 
-  // Sempre abre para seguir o passo a passo de chave em todo login.
-  showApiKeyModal();
+  // Login concluido. A conexao com IA e gerenciada pelo backend.
 }
 
 // ===== COACH CHAT =====
@@ -980,7 +842,7 @@ Pergunta do usuário: "${msg}"`;
 
   let responseText = "Desculpe, a IA está desligada. Configure sua API Key no topo para eu acordar!";
   
-  if (AppState.geminiApiVerified) {
+  if (AppState.aiServiceReady) {
     const rawR = await callGemini(coachPrompt);
     if (!rawR) {
       responseText = "Ops, não obtive resposta da IA.";

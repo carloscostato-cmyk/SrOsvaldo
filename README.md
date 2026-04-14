@@ -16,8 +16,8 @@ Agente inteligente de carreira focado em automação do processo de candidatura:
 O projeto é um aplicativo web estático (HTML + CSS + JavaScript), sem backend próprio.
 Toda a execução acontece no navegador do usuário.
 
-A IA é habilitada via chave de API do Google Gemini informada no modal do app.
-Sem chave Gemini validada, os fluxos de análise, otimização e geração de vagas ficam bloqueados.
+A IA e servida por um endpoint seguro no backend/proxy.
+O navegador nao recebe nem armazena chave de API.
 
 ## Funcionalidades Principais
 
@@ -52,6 +52,11 @@ Na prática, o processamento central ocorre por prompt no Gemini, retornando JSO
 - Melhorias sugeridas
 - Perfil do candidato
 - Vagas recomendadas
+
+Arquitetura de chamada:
+
+- Frontend chama endpoint seguro (`/api/gemini`)
+- Backend/proxy chama Gemini com segredo em variável de ambiente
 
 ### 4. Otimização de Currículo
 
@@ -98,6 +103,10 @@ IA:
 
 - Google Gemini (modelo compativel detectado automaticamente)
 
+Proxy/Backend sugerido para IA:
+
+- Cloudflare Worker (pasta `cloudflare/`)
+
 ## Estrutura do Projeto
 
 ```text
@@ -128,11 +137,21 @@ Exemplo com VS Code Live Server:
 
 ## Configuração da IA (Gemini)
 
-1. Acesse: https://aistudio.google.com/apikey
-2. Gere sua chave
-3. No app, clique em "IA" e cole a chave
-4. O app valida a chave em tempo real antes de ativar o status verde
-5. A chave é salva no navegador em `localStorage` (`sr_osvaldo_gemini_key`)
+1. Publique o Worker em `cloudflare/worker.js`
+2. Configure o segredo do Worker:
+  - `wrangler secret put GEMINI_API_KEY`
+3. (Opcional) restrinja origem em `cloudflare/wrangler.toml`:
+  - `ALLOWED_ORIGIN = "https://carloscostato-cmyk.github.io"`
+4. No `index.html`, configure `window.SR_OSVALDO_AI_ENDPOINT` com a URL do Worker
+5. No app, clique em `IA` para testar conexão
+
+### Deploy rápido do Worker (Cloudflare)
+
+1. Instale o Wrangler: `npm i -g wrangler`
+2. Login: `wrangler login`
+3. Entre na pasta `cloudflare/`
+4. Configure o segredo: `wrangler secret put GEMINI_API_KEY`
+5. Publique: `wrangler deploy`
 
 ## Deploy e Publicação
 

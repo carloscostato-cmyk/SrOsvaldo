@@ -1,0 +1,10 @@
+name = "sr-osvaldo-ai"
+main = "worker.js"
+compatibility_date = "2026-04-14"
+
+[vars]
+# Opcional: restrinja para sua pagina publicada
+# ALLOWED_ORIGIN = "https://carloscostato-cmyk.github.io"
+
+# Configure via comando:
+# wrangler secret put GEMINI_API_KEY
