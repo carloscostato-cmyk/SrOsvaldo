@@ -78,9 +78,10 @@
         </div>
         <input type="password" id="apiKeyInput" class="search-input" placeholder="Cole sua API Key do Gemini..." style="width:100%;padding-left:16px;margin-bottom:8px">
         <p style="font-size:.75rem;color:var(--text-muted)">🔒 Sua chave fica salva apenas no seu navegador.</p>
+        <p id="apiKeyFeedback" class="api-feedback" aria-live="polite"></p>
       </div>
       <div class="modal-footer" style="justify-content: flex-end;">
-        <button class="btn btn-primary btn-sm" onclick="saveApiKey()">✅ Salvar e Ativar IA</button>
+        <button class="btn btn-primary btn-sm" id="apiSaveBtn" onclick="saveApiKey()">✅ Salvar e Ativar IA</button>
       </div>
     </div>
   </div>

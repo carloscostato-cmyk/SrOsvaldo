@@ -66,7 +66,31 @@ async function callGemini(prompt, isJson = false) {
 }
 
 // API KEY
-function showApiKeyModal() { document.getElementById('apiKeyModal').classList.add('visible'); document.getElementById('apiKeyInput').value = AppState.geminiApiKey; }
+function setApiKeyFeedback(message = '', type = 'info') {
+  const el = document.getElementById('apiKeyFeedback');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.className = 'api-feedback';
+    return;
+  }
+  el.textContent = message;
+  el.className = `api-feedback visible ${type}`;
+}
+
+function setApiSaveButtonLoading(isLoading) {
+  const btn = document.getElementById('apiSaveBtn');
+  if (!btn) return;
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? '⏳ Validando chave...' : '✅ Salvar e Ativar IA';
+}
+
+function showApiKeyModal() {
+  document.getElementById('apiKeyModal').classList.add('visible');
+  document.getElementById('apiKeyInput').value = AppState.geminiApiKey;
+  setApiKeyFeedback('');
+  setApiSaveButtonLoading(false);
+}
 function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.remove('visible'); }
 
 async function validateGeminiApiKey(key) {
@@ -79,27 +103,39 @@ async function validateGeminiApiKey(key) {
         generationConfig: { temperature: 0, maxOutputTokens: 8 },
       }),
     });
-    return r.ok;
+    if (r.ok) return { ok: true };
+    const errorText = await r.text();
+    let message = `Erro ${r.status} ao validar a chave.`;
+    try {
+      const j = JSON.parse(errorText);
+      if (j?.error?.message) message = j.error.message;
+    } catch (e) {}
+    return { ok: false, message };
   } catch (e) {
-    return false;
+    return { ok: false, message: 'Falha de conexão durante a validação da chave.' };
   }
 }
 
 async function saveApiKey() {
   const k = document.getElementById('apiKeyInput').value.trim();
   if (!k || !k.startsWith('AIza') || k.length < 30) { 
+    setApiKeyFeedback('Chave inválida. Ela deve começar com AIza e ter tamanho válido.', 'error');
     showToast('Chave inválida! Chaves Gemini falsas não são aceitas (elas começam com AIza).', 'error'); 
     return; 
   }
 
+  setApiSaveButtonLoading(true);
+  setApiKeyFeedback('Validando chave no Google Gemini...', 'info');
   document.getElementById('apiStatusIcon').textContent = '🟡';
   showToast('Validando chave Gemini...', 'info');
-  const valid = await validateGeminiApiKey(k);
-  if (!valid) {
+  const validation = await validateGeminiApiKey(k);
+  if (!validation.ok) {
     AppState.geminiApiKey = '';
     AppState.geminiApiVerified = false;
     localStorage.removeItem('sr_osvaldo_gemini_key');
     updateApiStatus();
+    setApiSaveButtonLoading(false);
+    setApiKeyFeedback(`Erro ao validar chave: ${validation.message}`, 'error');
     showToast('Nao foi possivel validar a chave Gemini. Verifique e tente novamente.', 'error');
     return;
   }
@@ -108,6 +144,8 @@ async function saveApiKey() {
   AppState.geminiApiVerified = true;
   localStorage.setItem('sr_osvaldo_gemini_key', k);
   updateApiStatus();
+  setApiSaveButtonLoading(false);
+  setApiKeyFeedback('Chave validada com sucesso.', 'success');
   closeApiKeyModal();
   showToast('IA ativada com sucesso! 🚀', 'success');
 }
