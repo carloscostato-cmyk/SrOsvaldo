@@ -111,16 +111,18 @@ Proxy/Backend sugerido para IA:
 
 ```text
 SrOsvaldo/
+  cloudflare/
+    worker.js
+    wrangler.toml
   deploy_github.bat
   index.html
   README.md
-  curriculo_candidato_otimizado.pdf
   css/
     style.css
   js/
     app.js
   img/
-    ...
+    logo.png
 ```
 
 ## Como Executar Localmente
@@ -142,8 +144,8 @@ Exemplo com VS Code Live Server:
   - `wrangler secret put GEMINI_API_KEY`
 3. (Opcional) restrinja origem em `cloudflare/wrangler.toml`:
   - `ALLOWED_ORIGIN = "https://carloscostato-cmyk.github.io"`
-4. Abra o app, clique em `IA`, cole a URL do Worker no modal e use `Salvar e testar`
-5. Depois disso, o endpoint fica salvo no navegador e o app passa a usar a IA automaticamente
+4. O app ja vem com endpoint padrao do Worker configurado
+5. Se necessario, abra o modal `IA` apenas para sobrescrever a URL e testar conexao
 
 ## Login Google
 
@@ -185,12 +187,17 @@ Observação:
 
 ### Fase 2 - Segurança no Worker
 
-- Rate limit por IP (janela por minuto)
-- Quota diaria por IP
+- Rate limit por IP (opcional)
+- Quota diaria por IP (opcional)
 - Limite maximo de tamanho de prompt
 - Suporte opcional a CAPTCHA (Cloudflare Turnstile)
 - Logs estruturados anonimizados (hash de IP)
 - CORS por origem permitida
+
+Observacao:
+
+- Rate limit e quota diaria estao desativados por padrao na implementacao atual.
+- Para ativar, configure `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_MAX_REQUESTS` e `DAILY_QUOTA_PER_IP` no Worker.
 
 Configuracao em `cloudflare/wrangler.toml`:
 
@@ -207,10 +214,7 @@ Configuracao em `cloudflare/wrangler.toml`:
 
 - Usuario final nao precisa inserir chave de IA no navegador
 - Modal `IA` mostra apenas status de conexao do servico
-- Mensagens amigaveis para:
-  - limite temporario (quota/rate limit)
-  - bloqueio de seguranca (captcha)
-  - indisponibilidade do endpoint
+- Mensagens amigaveis para bloqueio de seguranca (captcha) e indisponibilidade do endpoint
 - Fluxos de analise, otimizacao, vagas e coach mostram feedback claro ao usuario
 
 ### Deploy rápido do Worker (Cloudflare)
@@ -219,7 +223,8 @@ Configuracao em `cloudflare/wrangler.toml`:
 2. Login: `wrangler login`
 3. Entre na pasta `cloudflare/`
 4. Configure o segredo: `wrangler secret put GEMINI_API_KEY`
-5. Publique: `wrangler deploy`
+5. (Opcional) Configure `GOOGLE_CLIENT_ID` para login Google: `wrangler secret put GOOGLE_CLIENT_ID`
+6. Publique: `wrangler deploy`
 
 ### Checklist Operacional
 
@@ -228,11 +233,10 @@ Use este fluxo para validar a instalação de ponta a ponta:
 1. Abra a URL do Worker publicada e teste `GET /api/health`
 2. Confirme que o retorno traz `ok: true` e um modelo válido
 3. Abra o Sr. OSvaldo no navegador
-4. Clique em `IA`
-5. Cole a URL do Worker no modal e clique em `Salvar e testar`
-6. Verifique se o status muda para conexão ativa
-7. Faça upload de um currículo e rode a análise completa
-8. Confirme se vagas, cartas e coach respondem sem pedir chave no navegador
+4. Verifique se o status de IA aparece como ativo
+5. (Opcional) Clique em `IA` para sobrescrever endpoint e testar conexao
+6. Faça upload de um currículo e rode a análise completa
+7. Confirme se vagas, cartas e coach respondem sem pedir chave no navegador
 
 ## Deploy e Publicação
 
@@ -260,7 +264,6 @@ Ele executa:
 - Login social real (OAuth)
 - Persistência de candidaturas em banco
 - Testes automatizados e validações de qualidade de prompts
-- Quota por usuario autenticado (alem de quota por IP)
 - Dashboard operacional de uso e limite da IA
 
 ## Autor
