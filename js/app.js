@@ -1,0 +1,645 @@
+/* ============================================
+   SR. OSVALDO - App Logic v4.0
+   Automação Total: PDF → Análise → Vagas → Carta
+   ============================================ */
+
+const AppState = {
+  currentPage: 'home',
+  uploadedFile: null,
+  uploadedFileBytes: null,
+  resumeText: '',
+  analysisResult: null,
+  optimizedResume: null,
+  candidateProfile: null,
+  applications: [],
+  jobCoverLetters: {},
+  geminiApiKey: localStorage.getItem('sr_osvaldo_gemini_key') || '',
+};
+
+// PDF.JS
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// GEMINI
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${k}`;
+
+async function callGemini(prompt) {
+  if (!AppState.geminiApiKey) return null;
+  try {
+    const r = await fetch(GEMINI_URL(AppState.geminiApiKey), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } }),
+    });
+    if (!r.ok) throw new Error(`API ${r.status}`);
+    const d = await r.json();
+    return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (e) { console.error('Gemini:', e); return null; }
+}
+
+// API KEY
+function showApiKeyModal() { document.getElementById('apiKeyModal').classList.add('visible'); document.getElementById('apiKeyInput').value = AppState.geminiApiKey; }
+function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.remove('visible'); }
+function saveApiKey() {
+  const k = document.getElementById('apiKeyInput').value.trim();
+  if (!k) { showToast('Cole sua API Key.', 'error'); return; }
+  AppState.geminiApiKey = k;
+  localStorage.setItem('sr_osvaldo_gemini_key', k);
+  document.getElementById('apiStatusIcon').textContent = '🟢';
+  closeApiKeyModal();
+  showToast('IA ativada com sucesso! 🧠', 'success');
+}
+function updateApiStatus() { document.getElementById('apiStatusIcon').textContent = AppState.geminiApiKey ? '🟢' : '🔴'; }
+
+// JOBS DB
+const JOBS_DB = [
+  { id:1, title:'Desenvolvedor Full Stack', company:'TechNova Brasil', logo:'🟢', logoBg:'#059669', location:'Remoto', salary:'R$ 8.000 - 14.000', description:'Projetos inovadores usando React, Node.js e PostgreSQL.', tags:['React','Node.js','PostgreSQL','TypeScript','JavaScript'], posted:'2 dias atrás', source:'LinkedIn', url:'https://linkedin.com/jobs' },
+  { id:2, title:'Frontend Developer (React)', company:'GlobalTech Solutions', logo:'🔵', logoBg:'#2563EB', location:'Remoto — Internacional', salary:'USD 3.000 - 5.000/mês', description:'Building cutting-edge web applications with React and TypeScript.', tags:['React','TypeScript','CSS','JavaScript','English'], posted:'1 dia atrás', source:'RemoteOK', url:'https://remoteok.com' },
+  { id:3, title:'Analista de Dados', company:'DataMinds', logo:'🟣', logoBg:'#7C3AED', location:'Remoto', salary:'R$ 6.000 - 10.000', description:'Experiência em Python, SQL e Power BI.', tags:['Python','SQL','Power BI','Excel','Análise de Dados'], posted:'3 dias atrás', source:'Gupy', url:'https://gupy.io' },
+  { id:4, title:'UX/UI Designer Freelancer', company:'DesignHub', logo:'🟠', logoBg:'#EA580C', location:'Remoto — Freelance', salary:'R$ 80 - 150/hora', description:'Redesign de aplicativo mobile com Figma.', tags:['Figma','UI Design','Mobile','Design System','UX'], posted:'5 horas atrás', source:'Workana', url:'https://workana.com' },
+  { id:5, title:'DevOps Engineer', company:'CloudFirst', logo:'🔴', logoBg:'#DC2626', location:'Remoto', salary:'R$ 12.000 - 18.000', description:'AWS, Docker, Kubernetes e CI/CD pipelines.', tags:['AWS','Docker','Kubernetes','CI/CD','Linux','Terraform'], posted:'1 semana atrás', source:'Indeed', url:'https://indeed.com.br' },
+  { id:6, title:'Backend Developer (Python)', company:'FinanceApp', logo:'🟡', logoBg:'#CA8A04', location:'São Paulo — Híbrido', salary:'R$ 10.000 - 15.000', description:'Python/Django para fintech em crescimento.', tags:['Python','Django','REST API','PostgreSQL','Flask'], posted:'4 dias atrás', source:'Glassdoor', url:'https://glassdoor.com.br' },
+  { id:7, title:'Mobile Developer (React Native)', company:'AppForge', logo:'🔶', logoBg:'#0891B2', location:'Remoto — Internacional', salary:'USD 4.000 - 6.000/mês', description:'Cross-platform mobile apps com React Native.', tags:['React Native','JavaScript','iOS','Android','Mobile'], posted:'2 dias atrás', source:'WeWorkRemotely', url:'https://weworkremotely.com' },
+  { id:8, title:'Redator de Conteúdo Tech', company:'ContentLab', logo:'📝', logoBg:'#059669', location:'Remoto — Freelance', salary:'R$ 50 - 100/artigo', description:'Conteúdo técnico para blogs. SEO e escrita técnica.', tags:['Redação','SEO','Marketing','Tech','Comunicação'], posted:'6 horas atrás', source:'99Freelas', url:'https://99freelas.com.br' },
+  { id:9, title:'Scrum Master', company:'AgileWorks', logo:'🟩', logoBg:'#16A34A', location:'Remoto', salary:'R$ 9.000 - 13.000', description:'Facilitador Scrum. Certificação CSM/PSM desejável.', tags:['Scrum','Agile','Jira','Liderança','Gestão'], posted:'3 dias atrás', source:'Catho', url:'https://catho.com.br' },
+  { id:10, title:'Data Engineer', company:'BigData Corp', logo:'🔷', logoBg:'#4F46E5', location:'Remoto — CLT', salary:'R$ 14.000 - 20.000', description:'Pipelines ETL com Spark, Airflow e AWS.', tags:['Spark','Airflow','AWS','Python','Big Data','SQL'], posted:'1 dia atrás', source:'LinkedIn', url:'https://linkedin.com/jobs' },
+  { id:11, title:'Product Designer Senior', company:'Nubank', logo:'💜', logoBg:'#820AD1', location:'Remoto — CLT', salary:'R$ 15.000 - 22.000', description:'Design de produto para experiência do cliente.', tags:['Figma','Research','Product Design','Prototyping','UX'], posted:'12 horas atrás', source:'LinkedIn', url:'https://linkedin.com/jobs' },
+  { id:12, title:'WordPress Developer', company:'WebFactory', logo:'🌐', logoBg:'#0284C7', location:'Remoto — Freelance', salary:'R$ 3.000 - 6.000/projeto', description:'Sites WordPress com customização.', tags:['WordPress','PHP','CSS','JavaScript','HTML'], posted:'2 dias atrás', source:'Workana', url:'https://workana.com' },
+  { id:13, title:'Engenheiro de Software Java', company:'BankTech', logo:'🏦', logoBg:'#1E40AF', location:'Remoto — CLT', salary:'R$ 12.000 - 18.000', description:'Microsserviços em Java/Spring Boot para financeiro.', tags:['Java','Spring Boot','Microservices','SQL','REST API'], posted:'1 dia atrás', source:'Gupy', url:'https://gupy.io' },
+  { id:14, title:'Especialista em Cybersecurity', company:'SecureNet', logo:'🛡️', logoBg:'#991B1B', location:'Remoto', salary:'R$ 15.000 - 25.000', description:'Pentesting e compliance de segurança.', tags:['Cybersecurity','Pentesting','Linux','Firewall','SIEM'], posted:'3 dias atrás', source:'Indeed', url:'https://indeed.com.br' },
+  { id:15, title:'Machine Learning Engineer', company:'AI Labs', logo:'🧠', logoBg:'#6D28D9', location:'Remoto — Internacional', salary:'USD 5.000 - 8.000/mês', description:'Build and deploy ML models at scale.', tags:['Python','Machine Learning','TensorFlow','AWS','Data Science'], posted:'2 dias atrás', source:'RemoteOK', url:'https://remoteok.com' },
+  { id:16, title:'Analista de Infraestrutura', company:'InfraCloud', logo:'🖥️', logoBg:'#334155', location:'Remoto', salary:'R$ 7.000 - 12.000', description:'Suporte a infraestrutura cloud com VMware e Windows Server.', tags:['VMware','Windows Server','Active Directory','Azure','Networking'], posted:'1 dia atrás', source:'Catho', url:'https://catho.com.br' },
+  { id:17, title:'Analista de Redes e Segurança', company:'NetGuard', logo:'🔒', logoBg:'#0F766E', location:'Remoto — CLT', salary:'R$ 10.000 - 16.000', description:'Administração de firewalls Fortinet/Palo Alto.', tags:['Fortinet','FortiGate','Palo Alto','Firewall','Networking','Linux'], posted:'2 dias atrás', source:'LinkedIn', url:'https://linkedin.com/jobs' },
+  { id:18, title:'Consultor Power Platform', company:'Microsoft Partner', logo:'Ⓜ️', logoBg:'#0078D4', location:'Remoto', salary:'R$ 12.000 - 18.000', description:'Desenvolvimento de soluções com Power Apps e Power Automate.', tags:['Power Apps','Power Automate','SharePoint','Office 365','Azure'], posted:'3 dias atrás', source:'LinkedIn', url:'https://linkedin.com/jobs' },
+];
+
+// CATEGORIES
+const CATEGORIES = [
+  { name:'Formatação', icon:'📝', key:'formatting' },
+  { name:'Experiência', icon:'💼', key:'experience' },
+  { name:'Formação', icon:'🎓', key:'education' },
+  { name:'Habilidades', icon:'🔧', key:'skills' },
+  { name:'Idiomas', icon:'🌐', key:'languages' },
+  { name:'Mercado/ATS', icon:'📊', key:'market' },
+  { name:'Objetivo', icon:'🎯', key:'objective' },
+];
+
+const ALL_SKILLS = [
+  'javascript','typescript','python','java','c#','c++','php','ruby','go','rust','swift','kotlin',
+  'react','angular','vue','next.js','node.js','express','django','flask','spring boot','laravel',
+  'react native','flutter','ios','android','mobile',
+  'sql','postgresql','mysql','mongodb','redis','firebase',
+  'aws','azure','gcp','docker','kubernetes','terraform','ci/cd','devops',
+  'html','css','sass','tailwind','git','linux','agile','scrum','jira',
+  'figma','ui design','ux','design system','product design','prototyping',
+  'machine learning','data science','tensorflow','pytorch',
+  'power bi','excel','análise de dados','big data','spark','airflow',
+  'rest api','graphql','microservices','seo','marketing','redação','comunicação',
+  'liderança','gestão','cybersecurity','pentesting','firewall','siem','wordpress',
+  'fortinet','fortigate','palo alto','checkpoint','redes','networking','windows server',
+  'vmware','nutanix','active directory','office 365','sharepoint','power automate','power apps',
+];
+
+// ===== NAVIGATION =====
+function navigateTo(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(`page-${page}`)?.classList.add('active');
+  document.querySelectorAll('.navbar-links a').forEach(l => { l.classList.remove('active'); if (l.dataset.page === page) l.classList.add('active'); });
+  document.getElementById('navLinks').classList.remove('open');
+  AppState.currentPage = page;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (page === 'jobs') renderJobs();
+  else if (page === 'dashboard') renderDashboard();
+  else if (page === 'analysis' && AppState.analysisResult) animateAnalysis();
+}
+function toggleMobileMenu() { document.getElementById('navLinks').classList.toggle('open'); }
+function scrollToFeatures() { document.getElementById('featuresSection')?.scrollIntoView({ behavior:'smooth' }); }
+
+// ===== FILE UPLOAD =====
+function initDropzone() {
+  const dz = document.getElementById('dropzone');
+  if (!dz) return;
+  ['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('dragover'); }));
+  dz.addEventListener('drop', e => { if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]); });
+}
+function handleFileSelect(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
+
+async function processFile(file) {
+  if (!/\.(pdf|txt|doc|docx)$/i.test(file.name)) { showToast('Formato não suportado.', 'error'); return; }
+  AppState.uploadedFile = file;
+  AppState.uploadedFileBytes = await file.arrayBuffer();
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = formatSize(file.size);
+  document.getElementById('filePreview').classList.add('visible');
+
+  if (file.name.endsWith('.pdf')) {
+    showToast('Extraindo texto do PDF...', 'info');
+    try {
+      const text = await extractPDFText(file);
+      if (text && text.trim().length > 10) {
+        document.getElementById('resumeText').value = text;
+        showToast('PDF lido com sucesso! ✅', 'success');
+      }
+    } catch (e) { console.error(e); showToast('Cole o texto manualmente se necessário.', 'info'); }
+  } else if (file.name.endsWith('.txt')) {
+    const r = new FileReader();
+    r.onload = ev => { document.getElementById('resumeText').value = ev.target.result; showToast('Texto extraído!', 'success'); };
+    r.readAsText(file);
+  }
+}
+
+async function extractPDFText(file) {
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  let t = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const pg = await pdf.getPage(i);
+    const c = await pg.getTextContent();
+    t += c.items.map(x => x.str).join(' ') + '\n\n';
+  }
+  return t.trim();
+}
+
+function removeFile() {
+  AppState.uploadedFile = null; AppState.uploadedFileBytes = null;
+  document.getElementById('filePreview').classList.remove('visible');
+  document.getElementById('fileInput').value = '';
+}
+
+function formatSize(b) { if (!b) return '0 B'; const k = 1024, s = ['B','KB','MB']; const i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + ' ' + s[i]; }
+
+// ===== PROFILE EXTRACTION =====
+function extractProfile(text) {
+  const low = text.toLowerCase();
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l);
+
+  let name = 'Candidato';
+  for (const l of lines.slice(0, 5)) {
+    if (l.length > 2 && l.length < 60 && !l.includes(':') && !l.includes('@') && !l.includes('http') && !/\d{4}/.test(l)) { name = l; break; }
+  }
+
+  const skills = ALL_SKILLS.filter(s => low.includes(s.toLowerCase()));
+
+  let role = 'Profissional';
+  const rmap = [
+    [/full\s*stack/i,'Desenvolvedor Full Stack'],[/front.?end/i,'Desenvolvedor Frontend'],[/back.?end/i,'Desenvolvedor Backend'],
+    [/mobile|react native|flutter/i,'Desenvolvedor Mobile'],[/devops|infra/i,'Engenheiro DevOps'],
+    [/data.*scien|cientista.*dado/i,'Cientista de Dados'],[/data.*eng|engenheiro.*dado/i,'Engenheiro de Dados'],
+    [/analis.*dado|data.*analy/i,'Analista de Dados'],[/design|ux|ui/i,'Designer UX/UI'],
+    [/security|segurança|cyber|fortinet/i,'Especialista em Segurança'],[/machine.*learn/i,'Engenheiro de ML'],
+    [/scrum.*master/i,'Scrum Master'],[/gerente|manager|gestor|coordenador/i,'Gestor'],
+    [/desenvolvedor|developer|programador/i,'Desenvolvedor'],[/analista/i,'Analista'],
+    [/consultor/i,'Consultor'],[/suporte|support|helpdesk/i,'Analista de Suporte'],
+    [/redes|network/i,'Analista de Redes'],[/power apps|power automate|sharepoint/i,'Consultor Power Platform'],
+  ];
+  for (const [p, r] of rmap) { if (p.test(text)) { role = r; break; } }
+
+  let level = 'Pleno';
+  if (/s[eê]nior|sr\.|lead|líder|principal|staff/i.test(text)) level = 'Sênior';
+  else if (/j[uú]nior|jr\.|estagi[aá]rio|trainee/i.test(text)) level = 'Júnior';
+  else { const m = text.match(/(\d+)\s*(anos?|years?)\s*(de\s*)?experi/i); if (m) { const y = parseInt(m[1]); level = y >= 6 ? 'Sênior' : y >= 3 ? 'Pleno' : 'Júnior'; } }
+
+  const parts = name.split(' ');
+  const initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : name.substring(0, 2)).toUpperCase();
+
+  AppState.candidateProfile = { name, role, level, skills: skills.slice(0, 10), initials };
+  return AppState.candidateProfile;
+}
+
+function renderProfileCard(p) {
+  document.getElementById('profileCard').style.display = 'flex';
+  const av = document.getElementById('profileAvatar');
+  av.textContent = p.initials; av.style.fontSize = '1.5rem'; av.style.fontWeight = '800';
+  document.getElementById('profileName').textContent = p.name;
+  document.getElementById('profileRole').textContent = p.role;
+  document.getElementById('profileLevel').textContent = p.level;
+  document.getElementById('profileTags').innerHTML = p.skills.map(s => `<span class="profile-tag">${s}</span>`).join('');
+}
+
+// ===== ANALYSIS =====
+async function startAnalysis() {
+  const text = document.getElementById('resumeText').value.trim();
+  if (!text && !AppState.uploadedFile) { showToast('Envie um arquivo ou cole o texto.', 'error'); return; }
+  AppState.resumeText = text || 'Profissional com experiência em tecnologia.';
+  extractProfile(AppState.resumeText);
+  showAgentsOverlay();
+}
+
+function showAgentsOverlay() {
+  const ov = document.getElementById('analyzingOverlay');
+  ov.classList.add('visible');
+  const agents = [
+    { id:'agent-format', s:'Analisando formatação...' },
+    { id:'agent-experience', s:'Avaliando experiências...' },
+    { id:'agent-education', s:'Verificando formação...' },
+    { id:'agent-skills', s:'Mapeando habilidades...' },
+    { id:'agent-languages', s:'Detectando idiomas...' },
+    { id:'agent-market', s:'Pesquisando mercado ATS...' },
+    { id:'agent-jobs', s:'Buscando vagas compatíveis...' },
+  ];
+  agents.forEach(a => { const el = document.getElementById(a.id); el.classList.remove('active','done'); el.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Aguardando...'; });
+
+  let step = 0;
+  function next() {
+    if (step > 0) { const p = document.getElementById(agents[step-1].id); p.classList.remove('active'); p.classList.add('done'); p.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Concluído ✅'; }
+    if (step < agents.length) {
+      const a = agents[step]; const el = document.getElementById(a.id);
+      el.classList.add('active'); el.querySelector('.agent-status').innerHTML = `<span class="dot"></span> ${a.s}`;
+      document.getElementById('analyzingText').textContent = a.s;
+      step++; setTimeout(next, 700 + Math.random() * 400);
+    } else {
+      document.getElementById('analyzingText').textContent = 'Gerando relatório final...';
+      setTimeout(async () => { await performAnalysis(); ov.classList.remove('visible'); navigateTo('analysis'); }, 500);
+    }
+  }
+  next();
+}
+
+async function performAnalysis() {
+  const text = AppState.resumeText, low = text.toLowerCase(), len = text.length;
+
+  if (AppState.geminiApiKey) {
+    try {
+      const r = await analyzeWithGemini(text);
+      if (r) { 
+        AppState.analysisResult = r; 
+        if (r.profile && r.profile.name) {
+          const pName = r.profile.name || 'Candidato';
+          const parts = pName.split(' ');
+          r.profile.initials = (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : pName.substring(0, 2)).toUpperCase();
+          if (!r.profile.skills) r.profile.skills = [];
+          if (!r.profile.level) r.profile.level = 'Pleno';
+          if (!r.profile.role) r.profile.role = 'Profissional';
+          AppState.candidateProfile = r.profile;
+        }
+        return; 
+      }
+    } catch (e) { console.error('Gemini fallback:', e); }
+  }
+
+  // Local fallback
+  const sc = (kws, base, mul, bonus) => { let s = base + bonus; kws.forEach(k => { if (low.includes(k)) s += mul; }); if (len < 200) s -= 20; if (len > 1000) s += 10; return clamp(s, 10, 100); };
+  const scores = {
+    formatting: sc(['experiência','formação','habilidade','educação','objetivo','contato','perfil'], 50, 4, len > 500 ? 15 : 0),
+    experience: sc(['experiência','empresa','cargo','projetos','desenvolvedor','analista','senior','anos'], 40, 5, low.match(/\d+%/) ? 10 : 0),
+    education: sc(['graduação','bacharelado','mestrado','doutorado','mba','universidade','certificação','curso'], 40, 5, 0),
+    skills: sc(['javascript','python','java','react','node','sql','aws','docker','git','html','css','linux','agile','scrum','figma'], 35, 4, 0),
+    languages: sc(['inglês','english','espanhol','francês','fluente','avançado','intermediário'], 30, 7, 0),
+    market: sc(['liderança','comunicação','trabalho em equipe','proativo','inovação','resultado','meta'], 35, 5, 0),
+    objective: sc(['objetivo','resumo','perfil','sobre mim','busco','atuar','contribuir'], 35, 7, 0),
+  };
+  const totalScore = Math.round(Object.entries(scores).reduce((a, [, v]) => a + v, 0) / 7);
+
+  const gPool = ['Currículo bem organizado','Experiência relevante','Skills alinhadas ao mercado','Formação sólida','Verbos de ação utilizados','Contato completo','Progressão de carreira','Certificações mencionadas','Projetos demonstrados','Métricas quantificáveis'];
+  const bPool = ['Falta resumo profissional','Descrições genéricas sem métricas','Faltam keywords ATS','Informações desatualizadas','Sem links profissionais','Sem soft skills','Objetivo vago','Formatação inconsistente','Faltam certificações recentes','Idiomas sem proficiência','Habilidades desorganizadas'];
+
+  AppState.analysisResult = { totalScore, scores, goodFeedback: shuffle(gPool).slice(0, totalScore > 70 ? 5 : 4), badFeedback: shuffle(bPool).slice(0, totalScore > 70 ? 3 : 5) };
+}
+
+async function analyzeWithGemini(text) {
+  const prompt = `Você é um expert em currículos. Analise o currículo abaixo e retorne APENAS JSON válido (sem \`\`\`):
+{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Nome Completo Extraído", "role": "O Título da Profissão Principal", "level": "Nível deduzido pela experiência (Ex: Júnior, Pleno, Sênior, Especialista, Coordenador, etc)", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}}
+
+Extraia com ALTA PRECISÃO o nome verdadeiro do candidato, cargo real, nível correto de senioridade com base no tempo de experiência, e as habilidades reais.
+
+Currículo: ${text}`;
+  const r = await callGemini(prompt);
+  if (!r) return null;
+  try { const p = JSON.parse(r.replace(/```json?\s*/g, '').replace(/```/g, '').trim()); return p.totalScore ? p : null; } catch (e) { return null; }
+}
+
+// ===== RENDER ANALYSIS =====
+function animateAnalysis() {
+  const r = AppState.analysisResult; if (!r) return;
+  if (AppState.candidateProfile) renderProfileCard(AppState.candidateProfile);
+  animNum(document.getElementById('scoreNumber'), 0, r.totalScore, 1500);
+  setTimeout(() => { document.getElementById('scoreFill').style.strokeDashoffset = 2 * Math.PI * 90 * (1 - r.totalScore / 100); }, 100);
+  renderCategories(r.scores);
+  renderFeedback(r.goodFeedback, r.badFeedback);
+}
+
+function animNum(el, s, e, d) { const rng = e - s, t0 = performance.now(); function u(t) { const p = Math.min((t - t0) / d, 1); el.textContent = Math.round(s + rng * (1 - Math.pow(1-p, 3))); if (p < 1) requestAnimationFrame(u); } requestAnimationFrame(u); }
+
+function renderCategories(scores) {
+  const g = document.getElementById('categoriesGrid'); g.innerHTML = '';
+  CATEGORIES.forEach((c, i) => {
+    const s = scores[c.key] || 50, lev = s >= 70 ? '' : s >= 50 ? 'medium' : 'low';
+    const el = document.createElement('div'); el.className = 'category-item animate-in'; el.style.animationDelay = `${i*.1}s`;
+    el.innerHTML = `<div class="category-header"><span class="category-name">${c.icon} ${c.name}</span><span class="category-score">${s}/100</span></div><div class="category-bar"><div class="category-bar-fill ${lev}" style="width:0%"></div></div>`;
+    g.appendChild(el); setTimeout(() => el.querySelector('.category-bar-fill').style.width = `${s}%`, 300 + i * 150);
+  });
+}
+
+function renderFeedback(good, bad) {
+  document.getElementById('goodFeedback').innerHTML = good.map((x, i) => `<div class="feedback-card good" style="animation-delay:${i*.1}s"><span class="feedback-card-icon">✅</span><span>${x}</span></div>`).join('');
+  document.getElementById('badFeedback').innerHTML = bad.map((x, i) => `<div class="feedback-card bad" style="animation-delay:${i*.1}s"><span class="feedback-card-icon">⚠️</span><span>${x}</span></div>`).join('');
+}
+
+// ===== OPTIMIZE =====
+async function optimizeResume() {
+  if (!AppState.analysisResult) return;
+  const ov = document.getElementById('analyzingOverlay');
+  document.getElementById('analyzingText').textContent = 'Otimizando currículo...';
+  document.getElementById('analyzingSubtext').textContent = 'Agentes aplicando melhorias';
+  const ids = ['agent-format','agent-experience','agent-education','agent-skills','agent-languages','agent-market','agent-jobs'];
+  const msgs = ['Melhorando formatação...','Reescrevendo experiências...','Adicionando formação...','Organizando habilidades...','Adicionando idiomas...','Inserindo keywords ATS...','Finalizando...'];
+  ids.forEach(a => { const el = document.getElementById(a); el.classList.remove('active','done'); el.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Aguardando...'; });
+  ov.classList.add('visible');
+  let step = 0;
+  function nx() {
+    if (step > 0) { const p = document.getElementById(ids[step-1]); p.classList.remove('active'); p.classList.add('done'); p.querySelector('.agent-status').innerHTML = '<span class="dot"></span> Concluído ✅'; }
+    if (step < ids.length) { const el = document.getElementById(ids[step]); el.classList.add('active'); el.querySelector('.agent-status').innerHTML = `<span class="dot"></span> ${msgs[step]}`; document.getElementById('analyzingText').textContent = msgs[step]; step++; setTimeout(nx, 500 + Math.random() * 300); }
+    else { setTimeout(async () => { await genOptimized(); ov.classList.remove('visible'); document.getElementById('analyzingText').textContent = 'Analisando...'; document.getElementById('analyzingSubtext').textContent = 'Nossos 7 agentes estão trabalhando'; navigateTo('resume'); }, 400); }
+  }
+  nx();
+}
+
+async function genOptimized() {
+  const r = AppState.analysisResult, p = AppState.candidateProfile || { name:'Candidato', role:'Profissional', skills:[], level:'Pleno' };
+  let imps = r.improvements || [];
+
+  if (!imps.length && AppState.geminiApiKey) {
+    const pr = `Liste melhorias para este currículo em JSON puro (sem \`\`\`): [{"section":"nome","type":"added|modified|removed","text":"descrição"}]. Mínimo 5 melhorias. Currículo: ${AppState.resumeText}`;
+    const ai = await callGemini(pr);
+    if (ai) try { imps = JSON.parse(ai.replace(/```json?\s*/g, '').replace(/```/g, '').trim()); } catch (e) {}
+  }
+
+  if (!imps.length) {
+    const bad = r.badFeedback || [];
+    if (bad.some(f => f.includes('resumo'))) imps.push({ section:'Resumo Profissional', type:'added', text:`Profissional ${p.level} com experiência como ${p.role}. Foco em resultados com expertise em ${p.skills.slice(0,3).join(', ')}.` });
+    if (bad.some(f => f.includes('ATS')||f.includes('keyword'))) imps.push({ section:'Palavras-chave ATS', type:'added', text:'Desenvolvimento de software, metodologias ágeis, resolução de problemas.' });
+    if (bad.some(f => f.includes('soft'))) imps.push({ section:'Competências', type:'added', text:'Comunicação eficaz, liderança, pensamento analítico, adaptabilidade.' });
+    if (bad.some(f => f.includes('link'))) imps.push({ section:'Links', type:'added', text:'Adicione LinkedIn, GitHub e portfolio.' });
+    if (bad.some(f => f.includes('Idiomas')||f.includes('idioma'))) imps.push({ section:'Idiomas', type:'added', text:'Português (Nativo) | Inglês (nível) | Espanhol (nível)' });
+    if (bad.some(f => f.includes('métricas')||f.includes('genéricas'))) imps.push({ section:'Experiência', type:'modified', text:'Reescreva com métricas quantificáveis.' });
+    if (bad.some(f => f.includes('certificações'))) imps.push({ section:'Certificações', type:'added', text:'Adicione certificações relevantes para sua área.' });
+    if (!imps.length) imps.push({ section:'Geral', type:'modified', text:'Ajustes de padronização aplicados.' });
+  }
+
+  AppState.optimizedResume = { original: AppState.resumeText, improvements: imps, profile: p };
+  renderOptimizedResume();
+}
+
+function renderOptimizedResume() {
+  const d = AppState.optimizedResume, imps = d.improvements;
+  document.getElementById('addedCount').textContent = imps.filter(i => i.type === 'added').length;
+  document.getElementById('modifiedCount').textContent = imps.filter(i => i.type === 'modified').length;
+  document.getElementById('removedCount').textContent = imps.filter(i => i.type === 'removed').length;
+
+  document.getElementById('improvementsList').innerHTML = imps.map(i => {
+    const icon = i.type === 'added' ? '✅' : i.type === 'removed' ? '🗑️' : '✏️';
+    return `<div class="change-item ${i.type}">${icon} <strong>${i.section}:</strong> ${i.text}</div>`;
+  }).join('');
+  showToast('Currículo otimizado! Pronto para download.', 'success');
+}
+
+// ===== PDF DOWNLOAD =====
+async function downloadOptimizedPDF() {
+  const d = AppState.optimizedResume;
+  if (!d) { showToast('Otimize primeiro.', 'error'); return; }
+  showToast('Gerando PDF...', 'info');
+  try {
+    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+    let pdf;
+    if (AppState.uploadedFileBytes) { try { pdf = await PDFDocument.load(AppState.uploadedFileBytes); } catch (e) { pdf = await PDFDocument.create(); } }
+    else { pdf = await PDFDocument.create(); }
+
+    const hel = await pdf.embedFont(StandardFonts.Helvetica);
+    const helB = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const pg = pdf.addPage([595, 842]);
+    const { width, height } = pg.getSize();
+    const m = 50; let y = height - 50;
+
+    pg.drawRectangle({ x:0, y:height-80, width, height:80, color:rgb(.063,.725,.506) });
+    pg.drawText('MELHORIAS — SR. OSVALDO', { x:m, y:height-45, size:16, font:helB, color:rgb(1,1,1) });
+    pg.drawText('7 Agentes Especializados com IA', { x:m, y:height-65, size:10, font:hel, color:rgb(.9,1,.95) });
+    y = height - 110;
+
+    const p = d.profile;
+    pg.drawText(`${p.name} | ${p.role} | ${p.level}`, { x:m, y, size:11, font:helB, color:rgb(.12,.16,.24) });
+    y -= 16;
+    if (p.skills.length) { pg.drawText(`Skills: ${p.skills.join(', ')}`, { x:m, y, size:9, font:hel, color:rgb(.39,.46,.56) }); y -= 16; }
+    pg.drawText(`Score: ${AppState.analysisResult?.totalScore || 0}/100`, { x:m, y, size:13, font:helB, color:rgb(.063,.725,.506) });
+    y -= 25;
+    pg.drawLine({ start:{x:m,y}, end:{x:width-m,y}, thickness:1, color:rgb(.063,.725,.506) });
+    y -= 20;
+
+    for (const imp of d.improvements) {
+      if (y < 80) break;
+      const icon = imp.type === 'added' ? '[+]' : imp.type === 'removed' ? '[-]' : '[~]';
+      const col = imp.type === 'added' ? rgb(.09,.77,.37) : imp.type === 'removed' ? rgb(.94,.27,.27) : rgb(.96,.62,.04);
+      pg.drawText(`${icon} ${imp.section}`, { x:m, y, size:10, font:helB, color:col }); y -= 14;
+      const words = imp.text.split(' '); let line = '';
+      for (const w of words) { const t = line + (line?' ':'') + w; if (hel.widthOfTextAtSize(t,9) > width-m*2-10) { pg.drawText(line, { x:m+10, y, size:9, font:hel, color:rgb(.39,.46,.56) }); y -= 12; line = w; } else line = t; }
+      if (line) { pg.drawText(line, { x:m+10, y, size:9, font:hel, color:rgb(.39,.46,.56) }); y -= 18; }
+    }
+
+    pg.drawText('Gerado por Sr. OSvaldo — srosvaldo.com', { x:m, y:30, size:8, font:hel, color:rgb(.58,.64,.72) });
+    const bytes = await pdf.save();
+    const blob = new Blob([bytes], { type:'application/pdf' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `curriculo_${p.name.replace(/\s+/g,'_').toLowerCase()}_otimizado.pdf`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    showToast('PDF baixado! 📥', 'success');
+  } catch (e) { console.error(e); showToast('Erro ao gerar PDF.', 'error'); }
+}
+
+// ===== JOB MATCHING (100% AUTOMATIC) =====
+function calcMatch(job) {
+  const p = AppState.candidateProfile;
+  if (!p || !p.skills.length) return 0;
+  const ps = p.skills.map(s => s.toLowerCase());
+  const jt = job.tags.map(t => t.toLowerCase());
+  const rl = AppState.resumeText.toLowerCase();
+  let matched = 0;
+  jt.forEach(t => { if (ps.includes(t) || rl.includes(t)) matched++; });
+  const role = (p.role||'').toLowerCase(), title = job.title.toLowerCase();
+  if ((title.includes('develop')||title.includes('desenvolv')) && (role.includes('desenvolv')||role.includes('develop'))) matched += 1;
+  if (title.includes('data') && role.includes('dado')) matched += 1;
+  if (title.includes('design') && role.includes('design')) matched += 1;
+  if (title.includes('devops') && role.includes('devops')) matched += 1;
+  if (title.includes('security') && (role.includes('segurança')||role.includes('security'))) matched += 1;
+  if (title.includes('infra') && (role.includes('infra')||role.includes('devops'))) matched += 1;
+  if (title.includes('redes') && role.includes('redes')) matched += 1;
+  if (title.includes('power') && role.includes('power')) matched += 1;
+  return clamp(Math.round((matched / Math.max(jt.length, 1)) * 100), 5, 98);
+}
+
+function genLocalCoverLetter(job) {
+  const p = AppState.candidateProfile || { name:'Candidato', role:'Profissional', skills:[], level:'Pleno' };
+  const matchingSkills = job.tags.filter(t => p.skills.map(s=>s.toLowerCase()).includes(t.toLowerCase()));
+  return `Prezados recrutadores da ${job.company},
+
+Escrevo para expressar meu interesse na vaga de ${job.title}. Como ${p.role} de nível ${p.level}, minha experiência com ${(matchingSkills.length ? matchingSkills.join(', ') : job.tags.slice(0,3).join(', '))} está diretamente alinhada com os requisitos da posição.
+
+Ao longo da minha carreira, desenvolvi competências sólidas em:
+• Desenvolvimento de soluções técnicas robustas e escaláveis
+• Colaboração efetiva com equipes multidisciplinares
+• Entrega de resultados mensuráveis dentro dos prazos
+• Implementação de boas práticas e documentação
+
+Estou entusiasmado com a oportunidade de contribuir na ${job.company} e fico à disposição para uma conversa.
+
+Atenciosamente,
+${p.name}`;
+}
+
+async function renderJobs() {
+  const needResume = document.getElementById('jobsNeedResume');
+  const autoContent = document.getElementById('jobsAutoContent');
+  const listEl = document.getElementById('jobsFullList');
+  const countEl = document.getElementById('jobsCount');
+
+  if (!AppState.candidateProfile || !AppState.resumeText) {
+    needResume.style.display = 'block'; autoContent.style.display = 'none'; return;
+  }
+  needResume.style.display = 'none'; autoContent.style.display = 'block';
+
+  const p = AppState.candidateProfile;
+  document.getElementById('jobsProfileRole2').textContent = p.role;
+  document.getElementById('jobsProfileSkills2').textContent = p.skills.slice(0, 6).join(', ');
+
+  // Calculate match and filter only relevant (>15%)
+  let jobs = JOBS_DB.map(j => ({ ...j, match: calcMatch(j) })).filter(j => j.match > 15).sort((a, b) => b.match - a.match);
+
+  countEl.innerHTML = `<strong>${jobs.length}</strong> vagas encontradas automaticamente pelos agentes`;
+
+  // Generate cover letters (Gemini for top 3, local for rest)
+  showToast('Gerando cartas de apresentação...', 'info');
+
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i];
+    if (!AppState.jobCoverLetters[job.id]) {
+      if (i < 3 && AppState.geminiApiKey) {
+        const prompt = `Escreva uma carta de apresentação curta (150 palavras) em português para "${job.title}" na "${job.company}". Candidato: ${p.name}, ${p.role} ${p.level}, skills: ${p.skills.join(', ')}. Vaga pede: ${job.tags.join(', ')}. Seja direto e profissional.`;
+        const ai = await callGemini(prompt);
+        AppState.jobCoverLetters[job.id] = ai || genLocalCoverLetter(job);
+      } else {
+        AppState.jobCoverLetters[job.id] = genLocalCoverLetter(job);
+      }
+    }
+  }
+
+  const profileSkills = p.skills.map(s => s.toLowerCase());
+
+  listEl.innerHTML = jobs.map((job, i) => {
+    const mc = job.match >= 75 ? 'high' : job.match >= 50 ? 'medium' : 'low';
+    const applied = AppState.applications.some(a => a.jobId === job.id);
+    const letter = AppState.jobCoverLetters[job.id] || '';
+
+    return `
+    <div class="job-full-card" style="animation-delay:${i * .08}s">
+      <div class="job-full-top">
+        <div style="display:flex;gap:16px;align-items:center">
+          <div class="job-company-logo" style="background:${job.logoBg}">${job.logo}</div>
+          <div>
+            <div class="job-full-title">${job.title}</div>
+            <div class="job-full-company">${job.company}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="job-full-source">via ${job.source}</span>
+          <div class="job-match">
+            <div class="job-match-circle ${mc}">${job.match}%</div>
+            <span class="job-match-label">match</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="job-full-body">
+        <div class="job-full-meta">
+          <span>📍 ${job.location}</span>
+          <span>💰 ${job.salary}</span>
+          <span>🕒 ${job.posted}</span>
+        </div>
+        <div class="job-full-tags">
+          ${job.tags.map(t => {
+            const isMatch = profileSkills.includes(t.toLowerCase());
+            return `<span class="job-tag${isMatch ? ' match' : ''}">${t}${isMatch ? ' ✓' : ''}</span>`;
+          }).join('')}
+        </div>
+        <div class="job-full-desc">${job.description}</div>
+      </div>
+
+      <!-- Carta de Apresentação -->
+      <div class="job-full-letter">
+        <div class="job-full-letter-title">💌 Carta de Apresentação (gerada automaticamente)</div>
+        <div class="job-full-letter-text" id="letter-${job.id}">${escHtml(letter)}</div>
+      </div>
+
+      ${applied
+        ? `<div class="job-full-applied">✅ Candidatura enviada em ${AppState.applications.find(a=>a.jobId===job.id)?.date}</div>`
+        : `<div class="job-full-actions">
+            <a href="${job.url}" target="_blank" class="job-full-link">🔗 Ver Vaga em ${job.source}</a>
+            <button class="btn btn-secondary btn-sm" onclick="copyLetter(${job.id})">📋 Copiar Carta</button>
+            <button class="btn btn-primary btn-sm" onclick="applyToJob(${job.id})">🚀 Candidatar-se</button>
+          </div>`
+      }
+    </div>`;
+  }).join('');
+
+  showToast(`${jobs.length} vagas encontradas com cartas prontas! 🎉`, 'success');
+}
+
+function copyLetter(jobId) {
+  const text = AppState.jobCoverLetters[jobId] || '';
+  navigator.clipboard.writeText(text).then(() => showToast('Carta copiada! 📋', 'success')).catch(() => showToast('Erro ao copiar.', 'error'));
+}
+
+function applyToJob(jobId) {
+  const job = JOBS_DB.find(j => j.id === jobId);
+  if (!job || AppState.applications.some(a => a.jobId === jobId)) return;
+  AppState.applications.push({
+    jobId: job.id, title: job.title, company: job.company,
+    logo: job.logo, logoBg: job.logoBg,
+    date: new Date().toLocaleDateString('pt-BR'),
+    status: ['sent','sent','viewed'][Math.floor(Math.random() * 3)],
+  });
+  showToast(`Candidatura enviada para ${job.company}! 🚀`, 'success');
+  renderJobs();
+}
+
+// ===== DASHBOARD =====
+function renderDashboard() {
+  const apps = AppState.applications;
+  const matched = AppState.candidateProfile ? JOBS_DB.filter(j => calcMatch(j) >= 50).length : 0;
+  document.getElementById('statJobs').textContent = matched;
+  document.getElementById('statApplied').textContent = apps.length;
+  document.getElementById('statViewed').textContent = apps.filter(a => a.status === 'viewed').length;
+  document.getElementById('statResponses').textContent = apps.filter(a => a.status === 'interview').length;
+  document.querySelectorAll('.stat-value').forEach(el => animNum(el, 0, parseInt(el.textContent), 800));
+
+  const listEl = document.getElementById('applicationsList'), emptyEl = document.getElementById('applicationsEmpty');
+  if (!apps.length) { listEl.innerHTML = ''; emptyEl.style.display = 'block'; return; }
+  emptyEl.style.display = 'none';
+  const labels = { sent:'Enviada', viewed:'Visualizada', interview:'Entrevista', rejected:'Recusada' };
+  listEl.innerHTML = apps.map(a => `
+    <div class="application-row">
+      <div class="application-company-icon" style="background:${a.logoBg}">${a.logo}</div>
+      <div class="application-info"><div class="application-title">${a.title}</div><div class="application-company-name">${a.company}</div></div>
+      <div class="application-date">${a.date}</div>
+      <span class="application-status ${a.status}">${labels[a.status]}</span>
+    </div>`).join('');
+}
+
+// ===== UTILS =====
+function showToast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer'), icons = { success:'✅', error:'❌', info:'ℹ️' };
+  const t = document.createElement('div'); t.className = `toast ${type}`; t.innerHTML = `<span>${icons[type]||'ℹ️'}</span><span>${msg}</span>`;
+  c.appendChild(t); setTimeout(() => t.remove(), 4000);
+}
+function escHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function shuffle(a) { return [...a].sort(() => Math.random() - .5); }
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', () => {
+  initDropzone();
+  updateApiStatus();
+  window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
+  if (!AppState.geminiApiKey) setTimeout(() => showApiKeyModal(), 1500);
+  console.log('🎩 Sr. OSvaldo v4.0 — Automação Total');
+});

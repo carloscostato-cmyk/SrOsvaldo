@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sr. OSvaldo - Seu agente inteligente de carreira. Análise de currículo com IA real, busca automática de vagas e candidatura.">
+  <title>Sr. OSvaldo | Agente Inteligente de Carreira</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+</head>
+<body>
+
+  <svg style="position:absolute;width:0;height:0">
+    <defs>
+      <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" style="stop-color:#10B981"/>
+        <stop offset="100%" style="stop-color:#059669"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- API Key Modal -->
+  <div class="modal-overlay" id="apiKeyModal">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h2>🔑 Configurar IA do Sr. OSvaldo</h2>
+        <button class="modal-close" onclick="closeApiKeyModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:16px;font-size:.92rem;color:var(--text-secondary);line-height:1.6">
+          Para análises com IA real, o Sr. OSvaldo usa o <strong>Google Gemini (100% gratuito)</strong>.
+        </p>
+        <div style="background:var(--primary-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:20px;font-size:.85rem;line-height:1.6">
+          <strong>Como conseguir (30 segundos):</strong><br>
+          1. Acesse <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--primary-600);font-weight:600;text-decoration:underline">aistudio.google.com/apikey</a><br>
+          2. Login com conta Google<br>
+          3. "Create API Key" → copie e cole abaixo
+        </div>
+        <input type="password" id="apiKeyInput" class="search-input" placeholder="Cole sua API Key do Gemini..." style="width:100%;padding-left:16px;margin-bottom:8px">
+        <p style="font-size:.75rem;color:var(--text-muted)">🔒 Sua chave fica salva apenas no seu navegador.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeApiKeyModal()">Depois</button>
+        <button class="btn btn-primary btn-sm" onclick="saveApiKey()">✅ Salvar e Ativar IA</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analyzing Overlay -->
+  <div class="analyzing-overlay" id="analyzingOverlay">
+    <div class="analyzing-spinner"></div>
+    <div class="analyzing-text" id="analyzingText">Analisando seu currículo...</div>
+    <div class="analyzing-subtext" id="analyzingSubtext">Nossos 7 agentes especializados estão trabalhando</div>
+    <div class="agents-panel" id="agentsPanel">
+      <div class="agent-card" id="agent-format"><div class="agent-avatar format">📝</div><div class="agent-info"><div class="agent-name">Agente de Formatação</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-experience"><div class="agent-avatar content">💼</div><div class="agent-info"><div class="agent-name">Agente de Experiência</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-education"><div class="agent-avatar" style="background:linear-gradient(135deg,#A78BFA,#7C3AED)">🎓</div><div class="agent-info"><div class="agent-name">Agente de Formação</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-skills"><div class="agent-avatar" style="background:linear-gradient(135deg,#F472B6,#EC4899)">🔧</div><div class="agent-info"><div class="agent-name">Agente de Habilidades</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-languages"><div class="agent-avatar" style="background:linear-gradient(135deg,#38BDF8,#0284C7)">🌐</div><div class="agent-info"><div class="agent-name">Agente de Idiomas</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-market"><div class="agent-avatar market">📊</div><div class="agent-info"><div class="agent-name">Agente de Mercado/ATS</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+      <div class="agent-card" id="agent-jobs"><div class="agent-avatar jobs">🔍</div><div class="agent-info"><div class="agent-name">Agente de Vagas</div><div class="agent-status"><span class="dot"></span> Aguardando...</div></div></div>
+    </div>
+  </div>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar" id="navbar">
+    <div class="container">
+      <div class="navbar-brand" onclick="navigateTo('home')">
+        <img src="img/logo.png" alt="Sr. OSvaldo" class="navbar-logo-img">
+        <span class="navbar-name">Sr. OSvaldo</span>
+      </div>
+      <ul class="navbar-links" id="navLinks">
+        <li><a href="#" data-page="home" class="active" onclick="navigateTo('home')"><span class="nav-icon">🏠</span> Início</a></li>
+        <li><a href="#" data-page="upload" onclick="navigateTo('upload')"><span class="nav-icon">📄</span> Currículo</a></li>
+        <li><a href="#" data-page="jobs" onclick="navigateTo('jobs')"><span class="nav-icon">🔍</span> Vagas</a></li>
+        <li><a href="#" data-page="dashboard" onclick="navigateTo('dashboard')"><span class="nav-icon">📊</span> Dashboard</a></li>
+      </ul>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="showApiKeyModal()" id="apiStatusBtn" title="Configurar IA">
+          <span id="apiStatusIcon">🔴</span> IA
+        </button>
+        <button class="mobile-toggle" onclick="toggleMobileMenu()"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ===== HOME ===== -->
+    <section id="page-home" class="page active">
+      <div class="container">
+        <div class="hero">
+          <div class="hero-shapes"><div class="hero-shape"></div><div class="hero-shape"></div><div class="hero-shape"></div></div>
+          <div class="hero-content">
+            <div class="hero-badge"><span class="badge-dot"></span>7 Agentes de IA Especializados</div>
+            <img src="img/logo.png" alt="Sr. OSvaldo" class="hero-logo-img">
+            <h1 class="hero-title"><span class="highlight">Sr. OSvaldo</span><br>Seu Agente de Carreira</h1>
+            <p class="hero-description">
+              Suba seu currículo em PDF e pronto — 7 agentes inteligentes analisam, 
+              otimizam e encontram as melhores vagas para você automaticamente. 
+              Você não precisa fazer mais nada.
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-secondary btn-lg" onclick="scrollToFeatures()">✨ Conhecer Recursos</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="features-section" id="featuresSection">
+          <div style="text-align:center">
+            <h2 class="section-title">Automação Total</h2>
+            <p class="section-subtitle" style="margin:0 auto 48px">Você sobe o PDF. O Sr. OSvaldo faz todo o resto.</p>
+          </div>
+          <div class="features-grid">
+            <div class="feature-card animate-in animate-delay-1">
+              <div class="feature-icon green">🤖</div>
+              <h3>Análise com IA Real</h3>
+              <p>7 agentes especializados analisam cada aspecto do seu currículo usando Google Gemini.</p>
+            </div>
+            <div class="feature-card animate-in animate-delay-2">
+              <div class="feature-icon blue">📄</div>
+              <h3>PDF Preservado</h3>
+              <p>Seu currículo é devolvido no mesmo formato original, com as melhorias aplicadas.</p>
+            </div>
+            <div class="feature-card animate-in animate-delay-3">
+              <div class="feature-icon amber">🔍</div>
+              <h3>Tudo Automático</h3>
+              <p>Vagas encontradas, cartas escritas, links prontos — você só clica em candidatar.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="steps-section">
+          <div style="text-align:center">
+            <h2 class="section-title">Como funciona</h2>
+            <p class="section-subtitle" style="margin:0 auto">Simples assim</p>
+          </div>
+          <div class="steps-grid">
+            <div class="step-card animate-in animate-delay-1"><div class="step-number">1</div><h4>Suba seu PDF</h4><p>Upload do currículo</p></div>
+            <div class="step-card animate-in animate-delay-2"><div class="step-number">2</div><h4>Clique em Analisar</h4><p>Único clique necessário</p></div>
+            <div class="step-card animate-in animate-delay-3"><div class="step-number">3</div><h4>Tudo pronto</h4><p>Análise + vagas + cartas</p></div>
+            <div class="step-card animate-in animate-delay-4"><div class="step-number">4</div><h4>Candidate-se</h4><p>Com 1 clique</p></div>
+          </div>
+        </div>
+
+        <div style="text-align:center;padding:40px 0 20px">
+          <button class="btn btn-primary btn-lg" onclick="navigateTo('upload')" style="font-size:1.1rem;padding:18px 48px">🎩 Experimentar Grátis</button>
+          <p style="margin-top:12px;font-size:.85rem;color:var(--text-muted)">Sem cadastro • 100% gratuito • IA powered by Google Gemini</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== UPLOAD ===== -->
+    <section id="page-upload" class="page">
+      <div class="container">
+        <div class="upload-container">
+          <h2 class="section-title" style="text-align:center">📄 Envie seu Currículo</h2>
+          <p class="section-subtitle" style="text-align:center;margin:0 auto 40px">
+            Faça upload do seu PDF — é a única coisa que você precisa fazer
+          </p>
+
+          <div class="upload-dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+            <span class="upload-icon">📁</span>
+            <h3>Arraste e solte seu currículo aqui</h3>
+            <p>Aceitamos PDF, DOC, DOCX ou TXT</p>
+            <span class="btn btn-primary btn-sm">Selecionar Arquivo</span>
+          </div>
+          <input type="file" id="fileInput" class="file-input" accept=".pdf,.doc,.docx,.txt" onchange="handleFileSelect(event)">
+
+          <div class="file-preview" id="filePreview">
+            <span class="file-preview-icon">📄</span>
+            <div class="file-preview-info">
+              <div class="file-preview-name" id="fileName"></div>
+              <div class="file-preview-size" id="fileSize"></div>
+            </div>
+            <button class="file-preview-remove" onclick="removeFile()">✕</button>
+          </div>
+
+          <!-- Textarea hidden by default, only for fallback -->
+          <details style="margin-top:24px">
+            <summary style="cursor:pointer;font-size:.85rem;color:var(--text-muted);text-align:center">Não consegue subir o PDF? Clique aqui para colar o texto</summary>
+            <textarea class="upload-textarea" id="resumeText" placeholder="Cole o texto do currículo aqui..." style="margin-top:12px"></textarea>
+          </details>
+
+          <div class="upload-actions">
+            <button class="btn btn-primary btn-lg" onclick="startAnalysis()">🤖 Analisar com 7 Agentes</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ANALYSIS ===== -->
+    <section id="page-analysis" class="page">
+      <div class="container">
+        <div class="profile-card" id="profileCard" style="display:none">
+          <div class="profile-avatar" id="profileAvatar">👤</div>
+          <div class="profile-info">
+            <div class="profile-name" id="profileName">Candidato</div>
+            <div class="profile-role" id="profileRole">Profissional</div>
+            <div class="profile-tags" id="profileTags"></div>
+          </div>
+          <div class="profile-level">
+            <div class="profile-level-badge" id="profileLevel">Pleno</div>
+            <div class="profile-level-label">Nível</div>
+          </div>
+        </div>
+
+        <div class="analysis-header">
+          <h2 class="section-title">📊 Resultado da Análise</h2>
+          <p class="section-subtitle" style="margin:0 auto">Análise por 7 agentes especializados com IA</p>
+        </div>
+
+        <div class="score-container">
+          <div class="score-circle">
+            <svg viewBox="0 0 200 200">
+              <circle class="score-bg" cx="100" cy="100" r="90"/>
+              <circle class="score-fill" id="scoreFill" cx="100" cy="100" r="90"/>
+            </svg>
+            <div class="score-value">
+              <span class="score-number" id="scoreNumber">0</span>
+              <span class="score-label">de 100</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="categories-grid" id="categoriesGrid"></div>
+
+        <div class="feedback-section">
+          <div class="feedback-columns">
+            <div>
+              <h3 style="display:flex;align-items:center;gap:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:16px">✅ Pontos Fortes</h3>
+              <div class="feedback-list" id="goodFeedback"></div>
+            </div>
+            <div>
+              <h3 style="display:flex;align-items:center;gap:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:16px">⚠️ Pontos a Melhorar</h3>
+              <div class="feedback-list" id="badFeedback"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="analysis-actions">
+          <button class="btn btn-secondary" onclick="navigateTo('upload')">← Novo Currículo</button>
+          <button class="btn btn-primary btn-lg" onclick="optimizeResume()">✨ Alterar — Otimizar Currículo</button>
+          <button class="btn btn-success btn-lg" onclick="navigateTo('jobs')">🔍 Ver Vagas Compatíveis</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== OPTIMIZED RESUME ===== -->
+    <section id="page-resume" class="page">
+      <div class="container">
+        <div class="optimized-container">
+          <div style="text-align:center;margin-bottom:40px">
+            <h2 class="section-title">✨ Currículo Otimizado</h2>
+            <p class="section-subtitle" style="margin:0 auto">Melhorias aplicadas pelos 7 agentes</p>
+          </div>
+
+          <div style="display:flex;gap:16px;justify-content:center;margin-bottom:32px;flex-wrap:wrap">
+            <div style="padding:12px 24px;background:var(--success-light);border-radius:var(--radius-full);font-size:.9rem;font-weight:600;color:#166534">✅ <span id="addedCount">0</span> melhorias</div>
+            <div style="padding:12px 24px;background:var(--warning-light);border-radius:var(--radius-full);font-size:.9rem;font-weight:600;color:#B45309">✏️ <span id="modifiedCount">0</span> modificações</div>
+            <div style="padding:12px 24px;background:var(--danger-light);border-radius:var(--radius-full);font-size:.9rem;font-weight:600;color:#991B1B">🗑️ <span id="removedCount">0</span> remoções</div>
+          </div>
+
+          <div id="improvementsList" style="max-width:750px;margin:0 auto 36px"></div>
+
+          <div class="optimized-actions">
+            <button class="btn btn-secondary" onclick="navigateTo('analysis')">← Ver Análise</button>
+            <button class="btn btn-success btn-lg" onclick="downloadOptimizedPDF()">📥 Baixar PDF Otimizado</button>
+            <button class="btn btn-primary btn-lg" onclick="navigateTo('jobs')">🔍 Ver Vagas Compatíveis</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== JOBS (AUTOMÁTICO) ===== -->
+    <section id="page-jobs" class="page">
+      <div class="container">
+        <!-- Needs resume alert -->
+        <div id="jobsNeedResume" style="display:none">
+          <div class="empty-state">
+            <div class="empty-state-icon">📄</div>
+            <h3>Envie seu currículo primeiro</h3>
+            <p>Os agentes precisam analisar seu perfil para encontrar vagas compatíveis automaticamente</p>
+            <button class="btn btn-primary btn-lg" onclick="navigateTo('upload')">📄 Enviar Currículo</button>
+          </div>
+        </div>
+
+        <!-- Auto results -->
+        <div id="jobsAutoContent" style="display:none">
+          <div style="text-align:center;margin-bottom:32px">
+            <h2 class="section-title">🔍 Vagas Encontradas para Você</h2>
+            <p class="section-subtitle" style="margin:0 auto">Os agentes encontraram estas vagas baseadas no seu perfil de <strong id="jobsProfileRole2">profissional</strong></p>
+            <p style="font-size:.85rem;color:var(--text-muted);margin-top:8px">
+              Skills detectadas: <span id="jobsProfileSkills2" style="color:var(--primary-600);font-weight:600"></span>
+            </p>
+          </div>
+
+          <div class="jobs-count" id="jobsCount"></div>
+
+          <!-- Job cards with everything included -->
+          <div id="jobsFullList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DASHBOARD ===== -->
+    <section id="page-dashboard" class="page">
+      <div class="container">
+        <h2 class="section-title">📊 Seu Dashboard</h2>
+        <p class="section-subtitle">Acompanhe sua jornada profissional</p>
+
+        <div class="dashboard-stats">
+          <div class="stat-card animate-in animate-delay-1"><div class="stat-icon green">🔍</div><div class="stat-value" id="statJobs">0</div><div class="stat-label">Vagas Compatíveis</div></div>
+          <div class="stat-card animate-in animate-delay-2"><div class="stat-icon blue">📨</div><div class="stat-value" id="statApplied">0</div><div class="stat-label">Candidaturas</div></div>
+          <div class="stat-card animate-in animate-delay-3"><div class="stat-icon amber">👁️</div><div class="stat-value" id="statViewed">0</div><div class="stat-label">Visualizações</div></div>
+          <div class="stat-card animate-in animate-delay-4"><div class="stat-icon red">💬</div><div class="stat-value" id="statResponses">0</div><div class="stat-label">Respostas</div></div>
+        </div>
+
+        <div class="applications-section">
+          <div class="applications-header"><h3>📋 Suas Candidaturas</h3></div>
+          <div id="applicationsList"></div>
+          <div class="empty-state" id="applicationsEmpty">
+            <div class="empty-state-icon">📋</div>
+            <h3>Nenhuma candidatura ainda</h3>
+            <p>As vagas já estão prontas — vá até "Vagas" e candidate-se</p>
+            <button class="btn btn-primary" onclick="navigateTo('jobs')">🔍 Ver Vagas</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="footer-text">
+        <img src="img/logo.png" alt="" style="width:20px;height:20px;display:inline;vertical-align:middle;border-radius:50%;margin-right:6px">
+        <span>Sr. OSvaldo</span> — Seu Agente Inteligente de Carreira &copy; 2026 | Powered by Google Gemini
+      </p>
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
