@@ -6,5 +6,19 @@ compatibility_date = "2026-04-14"
 # Opcional: restrinja para sua pagina publicada
 # ALLOWED_ORIGIN = "https://carloscostato-cmyk.github.io"
 
+# Fase 2 - seguranca operacional
+# RATE_LIMIT_WINDOW_SECONDS = "60"
+# RATE_LIMIT_MAX_REQUESTS = "8"
+# DAILY_QUOTA_PER_IP = "80"
+# MAX_PROMPT_CHARS = "40000"
+# REQUIRE_TURNSTILE = "false"
+# TURNSTILE_SECRET = ""
+# LOG_SALT = "sr-osvaldo"
+
 # Configure via comando:
 # wrangler secret put GEMINI_API_KEY
+
+# Opcional (persistencia de quota/rate em producao):
+# [[kv_namespaces]]
+# binding = "AI_USAGE_KV"
+# id = "<SEU_KV_NAMESPACE_ID>"

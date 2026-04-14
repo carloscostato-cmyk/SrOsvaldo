@@ -3,14 +3,198 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const state = {
   modelName: '',
   modelResolvedAt: 0,
+  memoryCounters: new Map(),
+  memoryDailyQuota: new Map(),
 };
+
+const DEFAULTS = {
+  RATE_LIMIT_WINDOW_SECONDS: 60,
+  RATE_LIMIT_MAX_REQUESTS: 8,
+  DAILY_QUOTA_PER_IP: 80,
+  MAX_PROMPT_CHARS: 40000,
+};
+
+function toInt(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function getConfig(env) {
+  return {
+    rateWindowSeconds: toInt(env.RATE_LIMIT_WINDOW_SECONDS, DEFAULTS.RATE_LIMIT_WINDOW_SECONDS),
+    rateMaxRequests: toInt(env.RATE_LIMIT_MAX_REQUESTS, DEFAULTS.RATE_LIMIT_MAX_REQUESTS),
+    dailyQuotaPerIp: toInt(env.DAILY_QUOTA_PER_IP, DEFAULTS.DAILY_QUOTA_PER_IP),
+    maxPromptChars: toInt(env.MAX_PROMPT_CHARS, DEFAULTS.MAX_PROMPT_CHARS),
+    requireTurnstile: String(env.REQUIRE_TURNSTILE || '').toLowerCase() === 'true',
+    hasKv: Boolean(env.AI_USAGE_KV),
+  };
+}
+
+function getClientIp(request) {
+  const cfIp = request.headers.get('CF-Connecting-IP');
+  if (cfIp) return cfIp;
+  const xff = request.headers.get('X-Forwarded-For');
+  if (xff) return xff.split(',')[0].trim();
+  return '0.0.0.0';
+}
+
+async function hashText(value) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  const bytes = Array.from(new Uint8Array(digest));
+  return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function currentDayKey() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(now.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+function secondsUntilNextUtcDay() {
+  const now = new Date();
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+  return Math.max(60, Math.floor((next - now.getTime()) / 1000));
+}
+
+async function incrementWithKvOrMemory(storage, key, ttlSeconds) {
+  if (storage?.get && storage?.put) {
+    const current = Number((await storage.get(key)) || 0);
+    const next = current + 1;
+    await storage.put(key, String(next), { expirationTtl: ttlSeconds });
+    return next;
+  }
+
+  const now = Date.now();
+  const current = state.memoryCounters.get(key);
+  if (!current || current.expiresAt <= now) {
+    state.memoryCounters.set(key, { value: 1, expiresAt: now + ttlSeconds * 1000 });
+    return 1;
+  }
+  current.value += 1;
+  state.memoryCounters.set(key, current);
+  return current.value;
+}
+
+async function incrementDailyWithKvOrMemory(storage, key, ttlSeconds) {
+  if (storage?.get && storage?.put) {
+    const current = Number((await storage.get(key)) || 0);
+    const next = current + 1;
+    await storage.put(key, String(next), { expirationTtl: ttlSeconds });
+    return next;
+  }
+
+  const now = Date.now();
+  const current = state.memoryDailyQuota.get(key);
+  if (!current || current.expiresAt <= now) {
+    state.memoryDailyQuota.set(key, { value: 1, expiresAt: now + ttlSeconds * 1000 });
+    return 1;
+  }
+  current.value += 1;
+  state.memoryDailyQuota.set(key, current);
+  return current.value;
+}
+
+async function enforceRateLimit(env, ip, config) {
+  const bucket = Math.floor(Date.now() / (config.rateWindowSeconds * 1000));
+  const key = `rl:${ip}:${bucket}`;
+  const ttl = config.rateWindowSeconds + 5;
+  const count = await incrementWithKvOrMemory(env.AI_USAGE_KV, key, ttl);
+  const remaining = Math.max(0, config.rateMaxRequests - count);
+  const retryAfter = Math.max(1, config.rateWindowSeconds - Math.floor((Date.now() / 1000) % config.rateWindowSeconds));
+
+  if (count > config.rateMaxRequests) {
+    return {
+      ok: false,
+      error: `Rate limit excedido. Tente novamente em ${retryAfter}s.`,
+      limit: config.rateMaxRequests,
+      remaining: 0,
+      retryAfter,
+    };
+  }
+
+  return { ok: true, limit: config.rateMaxRequests, remaining, retryAfter };
+}
+
+async function enforceDailyQuota(env, ip, config) {
+  const dayKey = currentDayKey();
+  const key = `dq:${ip}:${dayKey}`;
+  const ttl = secondsUntilNextUtcDay() + 3600;
+  const count = await incrementDailyWithKvOrMemory(env.AI_USAGE_KV, key, ttl);
+  const remaining = Math.max(0, config.dailyQuotaPerIp - count);
+
+  if (count > config.dailyQuotaPerIp) {
+    return {
+      ok: false,
+      error: 'Quota diaria de IA excedida para este IP.',
+      limit: config.dailyQuotaPerIp,
+      remaining: 0,
+    };
+  }
+
+  return { ok: true, limit: config.dailyQuotaPerIp, remaining };
+}
+
+async function verifyTurnstileIfRequired(request, env, config, body, ip) {
+  if (!config.requireTurnstile) return { ok: true };
+  if (!env.TURNSTILE_SECRET) {
+    return { ok: false, error: 'TURNSTILE_SECRET nao configurado no Worker.' };
+  }
+
+  const token = String(body?.captchaToken || request.headers.get('x-captcha-token') || '').trim();
+  if (!token) {
+    return { ok: false, error: 'Captcha obrigatorio: token nao informado.' };
+  }
+
+  const form = new URLSearchParams();
+  form.set('secret', env.TURNSTILE_SECRET);
+  form.set('response', token);
+  form.set('remoteip', ip);
+
+  const verifyResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  });
+
+  const verifyData = await verifyResponse.json();
+  if (!verifyData?.success) {
+    return { ok: false, error: 'Captcha invalido ou expirado.' };
+  }
+  return { ok: true };
+}
+
+function addSecurityHeaders(headers) {
+  headers['X-Content-Type-Options'] = 'nosniff';
+  headers['X-Frame-Options'] = 'DENY';
+  headers['Referrer-Policy'] = 'no-referrer';
+  return headers;
+}
+
+async function logEvent(env, payload) {
+  const salt = String(env.LOG_SALT || 'sr-osvaldo');
+  const ipHash = await hashText(`${salt}:${payload.ip}`);
+  const logData = {
+    ts: new Date().toISOString(),
+    requestId: payload.requestId,
+    route: payload.route,
+    method: payload.method,
+    status: payload.status,
+    durationMs: payload.durationMs,
+    ipHash,
+    reason: payload.reason || '',
+  };
+  console.log(JSON.stringify(logData));
+}
 
 function corsHeaders(origin, allowedOrigin = '*') {
   const allowOrigin = allowedOrigin === '*' ? '*' : (origin === allowedOrigin ? origin : 'null');
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, x-captcha-token',
     'Content-Type': 'application/json',
   };
 }
@@ -18,7 +202,7 @@ function corsHeaders(origin, allowedOrigin = '*') {
 function jsonResponse(body, status = 200, origin = '*', allowedOrigin = '*') {
   return new Response(JSON.stringify(body), {
     status,
-    headers: corsHeaders(origin, allowedOrigin),
+    headers: addSecurityHeaders(corsHeaders(origin, allowedOrigin)),
   });
 }
 
@@ -100,11 +284,15 @@ async function generateText(prompt, isJson, apiKey) {
 
 export default {
   async fetch(request, env) {
+    const startedAt = Date.now();
+    const requestId = crypto.randomUUID();
     const origin = request.headers.get('Origin') || '';
     const allowedOrigin = env.ALLOWED_ORIGIN || '*';
+    const config = getConfig(env);
+    const ip = getClientIp(request);
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders(origin, allowedOrigin) });
+      return new Response(null, { headers: addSecurityHeaders(corsHeaders(origin, allowedOrigin)) });
     }
 
     if (!env.GEMINI_API_KEY) {
@@ -116,8 +304,40 @@ export default {
     if (request.method === 'GET' && pathname === '/api/health') {
       try {
         const modelName = await resolveModel(env.GEMINI_API_KEY);
-        return jsonResponse({ ok: true, model: modelName.replace('models/', ''), message: 'IA disponivel' }, 200, origin, allowedOrigin);
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        return jsonResponse(
+          {
+            ok: true,
+            model: modelName.replace('models/', ''),
+            message: 'IA disponivel',
+            safeguards: {
+              rateLimitPerMinute: config.rateMaxRequests,
+              dailyQuotaPerIp: config.dailyQuotaPerIp,
+              turnstileRequired: config.requireTurnstile,
+              kvBacked: config.hasKv,
+            },
+          },
+          200,
+          origin,
+          allowedOrigin
+        );
       } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 503,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
         return jsonResponse({ ok: false, message: String(e?.message || 'Falha no health check de IA') }, 503, origin, allowedOrigin);
       }
     }
@@ -129,12 +349,109 @@ export default {
         const isJson = Boolean(body?.isJson);
 
         if (!prompt) {
+          await logEvent(env, {
+            requestId,
+            route: pathname,
+            method: request.method,
+            status: 400,
+            durationMs: Date.now() - startedAt,
+            ip,
+            reason: 'prompt-empty',
+          });
           return jsonResponse({ ok: false, error: 'Prompt vazio.' }, 400, origin, allowedOrigin);
         }
 
+        if (prompt.length > config.maxPromptChars) {
+          await logEvent(env, {
+            requestId,
+            route: pathname,
+            method: request.method,
+            status: 413,
+            durationMs: Date.now() - startedAt,
+            ip,
+            reason: 'prompt-too-large',
+          });
+          return jsonResponse({ ok: false, error: `Prompt excede limite de ${config.maxPromptChars} caracteres.` }, 413, origin, allowedOrigin);
+        }
+
+        const rate = await enforceRateLimit(env, ip, config);
+        if (!rate.ok) {
+          await logEvent(env, {
+            requestId,
+            route: pathname,
+            method: request.method,
+            status: 429,
+            durationMs: Date.now() - startedAt,
+            ip,
+            reason: 'rate-limit',
+          });
+          const response = jsonResponse({
+            ok: false,
+            error: rate.error,
+            retryAfterSeconds: rate.retryAfter,
+          }, 429, origin, allowedOrigin);
+          response.headers.set('Retry-After', String(rate.retryAfter));
+          response.headers.set('X-RateLimit-Limit', String(rate.limit));
+          response.headers.set('X-RateLimit-Remaining', String(rate.remaining));
+          return response;
+        }
+
+        const quota = await enforceDailyQuota(env, ip, config);
+        if (!quota.ok) {
+          await logEvent(env, {
+            requestId,
+            route: pathname,
+            method: request.method,
+            status: 429,
+            durationMs: Date.now() - startedAt,
+            ip,
+            reason: 'daily-quota',
+          });
+          const response = jsonResponse({ ok: false, error: quota.error }, 429, origin, allowedOrigin);
+          response.headers.set('X-Daily-Quota-Limit', String(quota.limit));
+          response.headers.set('X-Daily-Quota-Remaining', String(quota.remaining));
+          return response;
+        }
+
+        const captcha = await verifyTurnstileIfRequired(request, env, config, body, ip);
+        if (!captcha.ok) {
+          await logEvent(env, {
+            requestId,
+            route: pathname,
+            method: request.method,
+            status: 403,
+            durationMs: Date.now() - startedAt,
+            ip,
+            reason: 'captcha-failed',
+          });
+          return jsonResponse({ ok: false, error: captcha.error }, 403, origin, allowedOrigin);
+        }
+
         const result = await generateText(prompt, isJson, env.GEMINI_API_KEY);
-        return jsonResponse({ ok: true, text: result.text, model: result.modelName }, 200, origin, allowedOrigin);
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        const response = jsonResponse({ ok: true, text: result.text, model: result.modelName }, 200, origin, allowedOrigin);
+        response.headers.set('X-RateLimit-Limit', String(rate.limit));
+        response.headers.set('X-RateLimit-Remaining', String(rate.remaining));
+        response.headers.set('X-Daily-Quota-Limit', String(quota.limit));
+        response.headers.set('X-Daily-Quota-Remaining', String(quota.remaining));
+        return response;
       } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 502,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
         return jsonResponse({ ok: false, error: String(e?.message || 'Falha ao processar IA.') }, 502, origin, allowedOrigin);
       }
     }

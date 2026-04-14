@@ -145,6 +145,26 @@ Exemplo com VS Code Live Server:
 4. No `index.html`, configure `window.SR_OSVALDO_AI_ENDPOINT` com a URL do Worker
 5. No app, clique em `IA` para testar conexão
 
+### Fase 2 - Segurança no Worker
+
+- Rate limit por IP (janela por minuto)
+- Quota diaria por IP
+- Limite maximo de tamanho de prompt
+- Suporte opcional a CAPTCHA (Cloudflare Turnstile)
+- Logs estruturados anonimizados (hash de IP)
+- CORS por origem permitida
+
+Configuracao em `cloudflare/wrangler.toml`:
+
+- `RATE_LIMIT_WINDOW_SECONDS`
+- `RATE_LIMIT_MAX_REQUESTS`
+- `DAILY_QUOTA_PER_IP`
+- `MAX_PROMPT_CHARS`
+- `REQUIRE_TURNSTILE`
+- `TURNSTILE_SECRET`
+- `LOG_SALT`
+- `ALLOWED_ORIGIN`
+
 ### Deploy rápido do Worker (Cloudflare)
 
 1. Instale o Wrangler: `npm i -g wrangler`
@@ -169,7 +189,7 @@ Ele executa:
 
 - Não há backend para persistência centralizada
 - Dados de sessão/candidaturas ficam no navegador da máquina do usuário
-- Dependência de API Key manual para IA real
+- Dependência de endpoint de IA publicado e ativo
 - Qualidade de recomendação depende da qualidade do texto extraído do currículo
 
 ## Roadmap Sugerido
@@ -179,6 +199,8 @@ Ele executa:
 - Login social real (OAuth)
 - Persistência de candidaturas em banco
 - Testes automatizados e validações de qualidade de prompts
+- Quota por usuario autenticado (alem de quota por IP)
+- Dashboard operacional de uso e limite da IA
 
 ## Autor
 
