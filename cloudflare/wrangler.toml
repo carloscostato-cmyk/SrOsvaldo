@@ -17,6 +17,8 @@ compatibility_date = "2026-04-14"
 
 # Configure via comando:
 # wrangler secret put GEMINI_API_KEY
+# Configure o Client ID OAuth do Google:
+# wrangler secret put GOOGLE_CLIENT_ID
 
 # Opcional (persistencia de quota/rate em producao):
 # [[kv_namespaces]]

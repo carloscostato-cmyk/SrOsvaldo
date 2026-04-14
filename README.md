@@ -145,6 +145,23 @@ Exemplo com VS Code Live Server:
 4. Abra o app, clique em `IA`, cole a URL do Worker no modal e use `Salvar e testar`
 5. Depois disso, o endpoint fica salvo no navegador e o app passa a usar a IA automaticamente
 
+## Login Google
+
+O botão "Continuar com Google" agora usa o fluxo oficial do Google Identity Services e valida a credencial no Worker.
+
+Passos de configuração:
+
+1. Garanta que o `Client ID` OAuth esteja configurado no front-end e no Worker
+2. No Worker, defina `GOOGLE_CLIENT_ID` como secret
+3. Mantenha `GOOGLE_CLIENT_ID` igual ao client do OAuth criado no Google Cloud
+4. Se o `Client Secret` foi exibido em captura de tela, trate como exposto e gere outro no Google Cloud
+
+Observação:
+
+- O app não usa `Client Secret` no navegador
+- A validação do login acontece no Worker por meio do token `id_token`
+- O login é liberado somente depois da validação do token pelo backend
+
 ### Fase 2 - Segurança no Worker
 
 - Rate limit por IP (janela por minuto)

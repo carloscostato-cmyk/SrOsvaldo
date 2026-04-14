@@ -206,6 +206,33 @@ function jsonResponse(body, status = 200, origin = '*', allowedOrigin = '*') {
   });
 }
 
+async function verifyGoogleCredential(credential, expectedClientId) {
+  const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`;
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data?.error_description || data?.error || 'Falha ao validar credencial Google.');
+  }
+
+  if (expectedClientId && data?.aud !== expectedClientId) {
+    throw new Error('A credencial Google nao pertence a este Client ID.');
+  }
+
+  if (String(data?.email_verified || '').toLowerCase() !== 'true') {
+    throw new Error('E-mail Google nao verificado.');
+  }
+
+  return {
+    sub: data?.sub || '',
+    email: data?.email || '',
+    name: data?.name || data?.email || '',
+    picture: data?.picture || '',
+    hd: data?.hd || '',
+    email_verified: true,
+  };
+}
+
 async function resolveModel(apiKey) {
   const now = Date.now();
   if (state.modelName && now - state.modelResolvedAt < 10 * 60 * 1000) {
@@ -339,6 +366,43 @@ export default {
           reason: String(e?.message || ''),
         });
         return jsonResponse({ ok: false, message: String(e?.message || 'Falha no health check de IA') }, 503, origin, allowedOrigin);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/auth/google') {
+      try {
+        const body = await request.json();
+        const credential = String(body?.credential || '').trim();
+
+        if (!credential) {
+          return jsonResponse({ ok: false, error: 'Credencial Google nao informada.' }, 400, origin, allowedOrigin);
+        }
+
+        if (!env.GOOGLE_CLIENT_ID) {
+          return jsonResponse({ ok: false, error: 'GOOGLE_CLIENT_ID nao configurado no Worker.' }, 500, origin, allowedOrigin);
+        }
+
+        const user = await verifyGoogleCredential(credential, env.GOOGLE_CLIENT_ID);
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        return jsonResponse({ ok: true, user }, 200, origin, allowedOrigin);
+      } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 401,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
+        return jsonResponse({ ok: false, error: String(e?.message || 'Falha ao validar login Google.') }, 401, origin, allowedOrigin);
       }
     }
 

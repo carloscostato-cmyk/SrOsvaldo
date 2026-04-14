@@ -48,6 +48,19 @@ function getAiEndpointInput() {
   return document.getElementById('apiEndpointInput');
 }
 
+function getGoogleClientId() {
+  return String(window.SR_OSVALDO_GOOGLE_CLIENT_ID || localStorage.getItem('sr_osvaldo_google_client_id') || '').trim();
+}
+
+function getGoogleAuthUrl() {
+  const base = getAiProxyEndpoint();
+  return base ? `${base}/api/auth/google` : '';
+}
+
+function isGoogleLoginConfigured() {
+  return Boolean(getGoogleClientId());
+}
+
 function getCurrentAiEndpointValue() {
   const input = getAiEndpointInput();
   if (input && typeof input.value === 'string') {
@@ -67,6 +80,91 @@ function saveAiEndpoint(endpoint) {
   }
   updateApiStatus();
   return normalized;
+}
+
+function setLoggedInUser(user) {
+  const email = String(user?.email || '').trim();
+  const name = String(user?.name || email || '').trim();
+  const picture = String(user?.picture || '').trim();
+
+  sessionStorage.setItem('sr_osvaldo_session', 'true');
+  localStorage.setItem('sr_osvaldo_user', email || name || 'google-user');
+  localStorage.setItem('sr_osvaldo_user_name', name || email || 'Google User');
+  localStorage.setItem('sr_osvaldo_user_picture', picture);
+  localStorage.setItem('sr_osvaldo_auth_provider', 'google');
+}
+
+function handleGoogleCredentialResponse(response) {
+  return verifyGoogleLogin(response?.credential || '');
+}
+
+async function verifyGoogleLogin(credential) {
+  if (!credential) {
+    showToast('Nao foi possivel obter credencial do Google.', 'error');
+    return false;
+  }
+
+  const authUrl = getGoogleAuthUrl();
+  if (!authUrl) {
+    showToast('Configure a URL do Worker antes de usar login Google.', 'error');
+    return false;
+  }
+
+  try {
+    const response = await fetch(authUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || data?.message || 'Falha ao validar login Google.');
+    }
+
+    setLoggedInUser(data.user || {});
+    document.getElementById('loginGate').classList.add('hidden');
+    showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
+    return true;
+  } catch (error) {
+    console.error('Google login error:', error);
+    showToast(String(error?.message || 'Falha no login Google.'), 'error');
+    return false;
+  }
+}
+
+function initGoogleIdentity() {
+  if (!window.google?.accounts?.id) return false;
+  if (!isGoogleLoginConfigured()) return false;
+
+  try {
+    window.google.accounts.id.initialize({
+      client_id: getGoogleClientId(),
+      callback: handleGoogleCredentialResponse,
+    });
+    window.__srOsvaldoGoogleReady = true;
+    return true;
+  } catch (error) {
+    console.error('Google Identity init error:', error);
+    return false;
+  }
+}
+
+function handleGoogleLogin() {
+  if (!isGoogleLoginConfigured()) {
+    showToast('Configure o Google Client ID antes de entrar.', 'error');
+    return;
+  }
+
+  if (!window.__srOsvaldoGoogleReady && !initGoogleIdentity()) {
+    showToast('Google Login ainda nao carregou. Tente novamente em alguns segundos.', 'error');
+    return;
+  }
+
+  if (window.google?.accounts?.id?.prompt) {
+    window.google.accounts.id.prompt();
+  } else {
+    showToast('Biblioteca Google nao carregou corretamente.', 'error');
+  }
 }
 
 function classifyAiServiceError(message = '') {
@@ -948,11 +1046,10 @@ Pergunta do usuário: "${msg}"`;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  // Garante que toda nova abertura da página exija login novamente.
-  sessionStorage.removeItem('sr_osvaldo_session');
   checkLogin();
   initDropzone();
   updateApiStatus();
+  initGoogleIdentity();
   restoreAndValidateSavedApiKey();
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
   console.log('🎩 Sr. OSvaldo v4.0 — Login & Coach Added');
