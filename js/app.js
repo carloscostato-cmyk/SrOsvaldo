@@ -14,6 +14,7 @@ const AppState = {
   applications: [],
   jobCoverLetters: {},
   geminiApiKey: localStorage.getItem('sr_osvaldo_gemini_key') || '',
+  geminiApiVerified: false,
 };
 
 // PDF.JS
@@ -26,7 +27,7 @@ const GEMINI_MODEL = 'gemini-1.5-flash';
 const GEMINI_URL = (k) => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${k}`;
 
 async function callGemini(prompt, isJson = false) {
-  if (!AppState.geminiApiKey) return null;
+  if (!AppState.geminiApiKey || !AppState.geminiApiVerified) return null;
   try {
     const config = { temperature: 0.7, maxOutputTokens: 8192 };
     if (isJson) {
@@ -52,6 +53,14 @@ async function callGemini(prompt, isJson = false) {
     return d.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (e) {
     console.error('Gemini:', e);
+    const msg = String(e?.message || '');
+    if (/401|403|api key|permission|invalid/i.test(msg)) {
+      AppState.geminiApiKey = '';
+      AppState.geminiApiVerified = false;
+      localStorage.removeItem('sr_osvaldo_gemini_key');
+      updateApiStatus();
+      showToast('Chave Gemini invalida ou expirada. Configure novamente.', 'error');
+    }
     return `[ERRO] ${e.message}`; 
   }
 }
@@ -59,19 +68,86 @@ async function callGemini(prompt, isJson = false) {
 // API KEY
 function showApiKeyModal() { document.getElementById('apiKeyModal').classList.add('visible'); document.getElementById('apiKeyInput').value = AppState.geminiApiKey; }
 function closeApiKeyModal() { document.getElementById('apiKeyModal').classList.remove('visible'); }
-function saveApiKey() {
+
+async function validateGeminiApiKey(key) {
+  try {
+    const r = await fetch(GEMINI_URL(key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Responda apenas: OK' }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 8 },
+      }),
+    });
+    return r.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function saveApiKey() {
   const k = document.getElementById('apiKeyInput').value.trim();
   if (!k || !k.startsWith('AIza') || k.length < 30) { 
     showToast('Chave inválida! Chaves Gemini falsas não são aceitas (elas começam com AIza).', 'error'); 
     return; 
   }
+
+  document.getElementById('apiStatusIcon').textContent = '🟡';
+  showToast('Validando chave Gemini...', 'info');
+  const valid = await validateGeminiApiKey(k);
+  if (!valid) {
+    AppState.geminiApiKey = '';
+    AppState.geminiApiVerified = false;
+    localStorage.removeItem('sr_osvaldo_gemini_key');
+    updateApiStatus();
+    showToast('Nao foi possivel validar a chave Gemini. Verifique e tente novamente.', 'error');
+    return;
+  }
+
   AppState.geminiApiKey = k;
+  AppState.geminiApiVerified = true;
   localStorage.setItem('sr_osvaldo_gemini_key', k);
-  document.getElementById('apiStatusIcon').textContent = '🟢';
+  updateApiStatus();
   closeApiKeyModal();
   showToast('IA ativada com sucesso! 🚀', 'success');
 }
-function updateApiStatus() { document.getElementById('apiStatusIcon').textContent = AppState.geminiApiKey ? '🟢' : '🔴'; }
+function updateApiStatus() {
+  const icon = document.getElementById('apiStatusIcon');
+  const btn = document.getElementById('apiStatusBtn');
+  if (!icon) return;
+  if (!AppState.geminiApiKey) {
+    icon.textContent = '🔴';
+    if (btn) btn.title = 'IA desligada';
+    return;
+  }
+  if (AppState.geminiApiVerified) {
+    icon.textContent = '🟢';
+    if (btn) btn.title = 'IA validada e ativa';
+    return;
+  }
+  icon.textContent = '🟡';
+  if (btn) btn.title = 'IA aguardando validacao';
+}
+
+async function restoreAndValidateSavedApiKey() {
+  if (!AppState.geminiApiKey) {
+    AppState.geminiApiVerified = false;
+    updateApiStatus();
+    return;
+  }
+  AppState.geminiApiVerified = false;
+  updateApiStatus();
+  const valid = await validateGeminiApiKey(AppState.geminiApiKey);
+  if (valid) {
+    AppState.geminiApiVerified = true;
+    updateApiStatus();
+    return;
+  }
+  AppState.geminiApiKey = '';
+  AppState.geminiApiVerified = false;
+  localStorage.removeItem('sr_osvaldo_gemini_key');
+  updateApiStatus();
+}
 
 // JOBS DB
 const JOBS_DB = [
@@ -262,7 +338,7 @@ function showAgentsOverlay() {
 async function performAnalysis() {
   const text = AppState.resumeText, low = text.toLowerCase(), len = text.length;
 
-  if (AppState.geminiApiKey) {
+  if (AppState.geminiApiVerified) {
     try {
       showToast('Enviando para inteligência artificial...', 'info');
       const apiResp = await analyzeWithGemini(text, AppState.uploadLinkedin);
@@ -429,7 +505,7 @@ async function genOptimized() {
   const r = AppState.analysisResult, p = AppState.candidateProfile || { name:'Candidato', role:'Profissional', skills:[], level:'Pleno' };
   let imps = r.improvements || [];
 
-  if (!imps.length && AppState.geminiApiKey) {
+  if (!imps.length && AppState.geminiApiVerified) {
     const pr = `Liste melhorias para este currículo em JSON puro (sem \`\`\`): [{"section":"nome","type":"added|modified|removed","text":"descrição"}]. Mínimo 5 melhorias. Currículo: ${AppState.resumeText}`;
     const ai = await callGemini(pr);
     if (ai) try { imps = JSON.parse(ai.replace(/```json?\s*/g, '').replace(/```/g, '').trim()); } catch (e) {}
@@ -587,7 +663,7 @@ async function renderJobs() {
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i];
     if (!AppState.jobCoverLetters[job.id]) {
-      if (i < 3 && AppState.geminiApiKey) {
+      if (i < 3 && AppState.geminiApiVerified) {
         const prompt = `Escreva uma carta de apresentação curta (150 palavras) em português para "${job.title}" na "${job.company}". Candidato: ${p.name}, ${p.role} ${p.level}, skills: ${p.skills.join(', ')}. Vaga pede: ${job.tags.join(', ')}. Seja direto e profissional.`;
         const ai = await callGemini(prompt);
         AppState.jobCoverLetters[job.id] = ai || genLocalCoverLetter(job);
@@ -732,10 +808,8 @@ function handleLogin() {
   document.getElementById('loginGate').classList.add('hidden');
   showToast('Bem-vindo! 🎩', 'success');
 
-  // Abre logo em seguida para garantir a chave
-  if (!AppState.geminiApiKey) {
-    showApiKeyModal();
-  }
+  // Sempre abre para seguir o passo a passo de chave em todo login.
+  showApiKeyModal();
 }
 
 // ===== COACH CHAT =====
@@ -778,7 +852,7 @@ Pergunta do usuário: "${msg}"`;
 
   let responseText = "Desculpe, a IA está desligada. Configure sua API Key no topo para eu acordar!";
   
-  if (AppState.geminiApiKey) {
+  if (AppState.geminiApiVerified) {
     const rawR = await callGemini(coachPrompt);
     if (!rawR) {
       responseText = "Ops, não obtive resposta da IA.";
@@ -807,9 +881,12 @@ Pergunta do usuário: "${msg}"`;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+  // Garante que toda nova abertura da página exija login novamente.
+  sessionStorage.removeItem('sr_osvaldo_session');
   checkLogin();
   initDropzone();
   updateApiStatus();
+  restoreAndValidateSavedApiKey();
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
   console.log('🎩 Sr. OSvaldo v4.0 — Login & Coach Added');
 });
