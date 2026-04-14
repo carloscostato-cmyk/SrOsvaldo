@@ -183,6 +183,19 @@ Configuracao em `cloudflare/wrangler.toml`:
 4. Configure o segredo: `wrangler secret put GEMINI_API_KEY`
 5. Publique: `wrangler deploy`
 
+### Checklist Operacional
+
+Use este fluxo para validar a instalação de ponta a ponta:
+
+1. Abra a URL do Worker publicada e teste `GET /api/health`
+2. Confirme que o retorno traz `ok: true` e um modelo válido
+3. Abra o Sr. OSvaldo no navegador
+4. Clique em `IA`
+5. Cole a URL do Worker no modal e clique em `Salvar e testar`
+6. Verifique se o status muda para conexão ativa
+7. Faça upload de um currículo e rode a análise completa
+8. Confirme se vagas, cartas e coach respondem sem pedir chave no navegador
+
 ## Deploy e Publicação
 
 Script incluso:
