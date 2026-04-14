@@ -19,6 +19,40 @@ const AppState = {
   aiLastUserError: '',
 };
 
+const DEFAULT_AI_ENDPOINT = 'https://sr-osvaldo-ai.srosvaldo.workers.dev';
+
+function safeStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    return '';
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    return false;
+  }
+  return true;
+}
+
+function ensureDefaultAiEndpoint() {
+  const currentEndpoint = String(window.SR_OSVALDO_AI_ENDPOINT || safeStorageGet('sr_osvaldo_ai_endpoint') || '').trim();
+  if (!currentEndpoint) {
+    window.SR_OSVALDO_AI_ENDPOINT = DEFAULT_AI_ENDPOINT;
+    safeStorageSet('sr_osvaldo_ai_endpoint', DEFAULT_AI_ENDPOINT);
+    return DEFAULT_AI_ENDPOINT;
+  }
+
+  if (!window.SR_OSVALDO_AI_ENDPOINT) {
+    window.SR_OSVALDO_AI_ENDPOINT = currentEndpoint;
+  }
+
+  return currentEndpoint.replace(/\/$/, '');
+}
+
 // PDF.JS
 if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -26,7 +60,7 @@ if (typeof pdfjsLib !== 'undefined') {
 
 // IA SERVICE (backend/proxy)
 function getAiProxyEndpoint() {
-  return String(window.SR_OSVALDO_AI_ENDPOINT || localStorage.getItem('sr_osvaldo_ai_endpoint') || '').trim().replace(/\/$/, '');
+  return ensureDefaultAiEndpoint();
 }
 
 function getAiHealthUrl() {
@@ -49,7 +83,7 @@ function getAiEndpointInput() {
 }
 
 function getGoogleClientId() {
-  return String(window.SR_OSVALDO_GOOGLE_CLIENT_ID || localStorage.getItem('sr_osvaldo_google_client_id') || '').trim();
+  return String(window.SR_OSVALDO_GOOGLE_CLIENT_ID || safeStorageGet('sr_osvaldo_google_client_id') || '').trim();
 }
 
 function getGoogleAuthUrl() {
@@ -179,10 +213,11 @@ async function handleSignup() {
     return;
   }
 
-  const authUrl = getAuthApiUrl('/api/auth/register');
+  let authUrl = getAuthApiUrl('/api/auth/register');
   if (!authUrl) {
-    setSignupModalFeedback('Configure a URL do Worker antes de criar conta.', 'error');
-    return;
+    window.SR_OSVALDO_AI_ENDPOINT = DEFAULT_AI_ENDPOINT;
+    safeStorageSet('sr_osvaldo_ai_endpoint', DEFAULT_AI_ENDPOINT);
+    authUrl = `${DEFAULT_AI_ENDPOINT}/api/auth/register`;
   }
 
   setSignupButtonLoading(true);
@@ -223,10 +258,11 @@ async function handleLogin() {
     return;
   }
 
-  const authUrl = getAuthApiUrl('/api/auth/password');
+  let authUrl = getAuthApiUrl('/api/auth/password');
   if (!authUrl) {
-    showToast('Configure a URL do Worker antes de entrar.', 'error');
-    return;
+    window.SR_OSVALDO_AI_ENDPOINT = DEFAULT_AI_ENDPOINT;
+    safeStorageSet('sr_osvaldo_ai_endpoint', DEFAULT_AI_ENDPOINT);
+    authUrl = `${DEFAULT_AI_ENDPOINT}/api/auth/password`;
   }
 
   const loginBtn = document.querySelector('.login-btn-submit');
@@ -269,10 +305,11 @@ async function verifyGoogleLogin(credential) {
     return false;
   }
 
-  const authUrl = getGoogleAuthUrl();
+  let authUrl = getGoogleAuthUrl();
   if (!authUrl) {
-    showToast('Configure a URL do Worker antes de usar login Google.', 'error');
-    return false;
+    window.SR_OSVALDO_AI_ENDPOINT = DEFAULT_AI_ENDPOINT;
+    safeStorageSet('sr_osvaldo_ai_endpoint', DEFAULT_AI_ENDPOINT);
+    authUrl = `${DEFAULT_AI_ENDPOINT}/api/auth/google`;
   }
 
   try {
