@@ -363,7 +363,13 @@ function handleGoogleLogin() {
   }
 
   if (window.google?.accounts?.id?.prompt) {
-    window.google.accounts.id.prompt();
+    window.google.accounts.id.prompt((notification) => {
+      const notDisplayed = typeof notification?.isNotDisplayed === 'function' && notification.isNotDisplayed();
+      const skipped = typeof notification?.isSkippedMoment === 'function' && notification.isSkippedMoment();
+      if (notDisplayed || skipped) {
+        showToast('Nao foi possivel abrir o login Google neste navegador. Tente novamente.', 'error');
+      }
+    });
   } else {
     showToast('Biblioteca Google nao carregou corretamente.', 'error');
   }
@@ -1244,6 +1250,12 @@ Pergunta do usuário: "${msg}"`;
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+  window.handleGoogleLogin = handleGoogleLogin;
+  window.handleLogin = handleLogin;
+  window.openSignupModal = openSignupModal;
+  window.closeSignupModal = closeSignupModal;
+  window.handlePasswordRecovery = handlePasswordRecovery;
+
   checkLogin();
   initDropzone();
   updateApiStatus();
