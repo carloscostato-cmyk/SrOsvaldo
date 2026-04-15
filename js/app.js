@@ -86,6 +86,66 @@ function getGoogleClientId() {
   return String(window.SR_OSVALDO_GOOGLE_CLIENT_ID || safeStorageGet('sr_osvaldo_google_client_id') || '').trim();
 }
 
+function getGoogleAllowedOrigins() {
+  const configured = window.SR_OSVALDO_GOOGLE_ALLOWED_ORIGINS;
+  if (!Array.isArray(configured)) return [];
+  return configured
+    .map((origin) => String(origin || '').trim())
+    .filter(Boolean);
+}
+
+function updateGoogleLoginHint(message = '', type = 'info') {
+  const container = document.getElementById('googleSignInButton');
+  if (!container) return;
+
+  let hint = document.getElementById('googleSignInHint');
+  if (!hint) {
+    hint = document.createElement('p');
+    hint.id = 'googleSignInHint';
+    hint.style.margin = '8px 0 0';
+    hint.style.fontSize = '.78rem';
+    hint.style.lineHeight = '1.45';
+    hint.style.textAlign = 'left';
+    hint.style.color = '#64748b';
+    container.insertAdjacentElement('afterend', hint);
+  }
+
+  if (!message) {
+    hint.textContent = '';
+    hint.style.display = 'none';
+    return;
+  }
+
+  hint.style.display = 'block';
+  hint.textContent = message;
+  hint.style.color = type === 'error' ? '#b91c1c' : '#64748b';
+}
+
+function updateGoogleOriginDiagnosticsHint() {
+  if (!isGoogleLoginConfigured()) {
+    updateGoogleLoginHint('Login Google desativado: configure SR_OSVALDO_GOOGLE_CLIENT_ID.', 'error');
+    return;
+  }
+
+  const allowedOrigins = getGoogleAllowedOrigins();
+  if (!allowedOrigins.length) {
+    updateGoogleLoginHint('Se ocorrer origin_mismatch, cadastre a origem atual no Google Cloud OAuth.', 'info');
+    return;
+  }
+
+  const currentOrigin = window.location.origin;
+  const isAllowed = allowedOrigins.includes(currentOrigin);
+  if (isAllowed) {
+    updateGoogleLoginHint('', 'info');
+    return;
+  }
+
+  updateGoogleLoginHint(
+    `A origem atual (${currentOrigin}) nao esta na lista recomendada de OAuth. Adicione esta origem no Google Cloud para evitar Error 400 origin_mismatch.`,
+    'error'
+  );
+}
+
 function getGoogleAuthUrl() {
   const base = getAiProxyEndpoint();
   return base ? `${base}/api/auth/google` : '';
@@ -336,6 +396,7 @@ async function verifyGoogleLogin(credential) {
 
 function initGoogleIdentity() {
   if (!window.google?.accounts?.id) return false;
+  updateGoogleOriginDiagnosticsHint();
   if (!isGoogleLoginConfigured()) return false;
 
   try {

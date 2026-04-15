@@ -158,6 +158,24 @@ Passos de configuração:
 3. Mantenha `GOOGLE_CLIENT_ID` igual ao client do OAuth criado no Google Cloud
 4. Se o `Client Secret` foi exibido em captura de tela, trate como exposto e gere outro no Google Cloud
 
+### Erro 400 `origin_mismatch` (solução rápida)
+
+Se ao clicar em `Continuar com Google` aparecer `Error 400: origin_mismatch`, a origem atual do navegador não está cadastrada no OAuth Client do Google.
+
+No Google Cloud Console (APIs e Serviços -> Credenciais -> OAuth 2.0 Client IDs), adicione em `Authorized JavaScript origins`:
+
+- `http://localhost:4173`
+- `http://localhost:5500`
+- `http://127.0.0.1:4173`
+- `http://127.0.0.1:5500`
+- `https://carloscostato-cmyk.github.io`
+
+Notas:
+
+- Para Google Identity Services (botão do Google), normalmente não é necessário `Authorized redirect URI`.
+- O `GOOGLE_CLIENT_ID` do front-end e o `GOOGLE_CLIENT_ID` secret do Worker devem ser o mesmo valor.
+- Depois de salvar no Google Cloud, aguarde cerca de 1 minuto e teste novamente.
+
 Observação:
 
 - O app não usa `Client Secret` no navegador
