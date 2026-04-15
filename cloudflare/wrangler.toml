@@ -1,4 +1,5 @@
 name = "sr-osvaldo-ai"
+account_id = "da302a06ef6e5e47c3043b1725aac4ee"
 main = "worker.js"
 compatibility_date = "2026-04-14"
 
