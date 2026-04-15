@@ -25,6 +25,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.11.0/mammoth.browser.min.js"></script>
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 </head>
 <body>
@@ -256,10 +257,10 @@
           <div class="upload-dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
             <span class="upload-icon">📁</span>
             <h3>Arraste e solte seu currículo aqui</h3>
-            <p>Aceitamos PDF, DOC, DOCX ou TXT</p>
+            <p>Aceitamos PDF, DOCX ou TXT</p>
             <span class="btn btn-primary btn-sm">Selecionar Arquivo</span>
           </div>
-          <input type="file" id="fileInput" class="file-input" accept=".pdf,.doc,.docx,.txt" onchange="handleFileSelect(event)">
+          <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.txt" onchange="handleFileSelect(event)">
 
           <div class="file-preview" id="filePreview">
             <span class="file-preview-icon">📄</span>

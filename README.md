@@ -30,8 +30,8 @@ O navegador nao recebe nem armazena chave de API.
 ### 2. Upload e Extração de Currículo
 
 - Arrastar/soltar ou seleção de arquivo
-- Suporte a `.pdf`, `.txt`, `.doc`, `.docx`
-- Extração de texto de PDF via `pdf.js`
+- Suporte a `.pdf`, `.txt`, `.docx`
+- Extracao de texto de PDF via `pdf.js` e de DOCX via `mammoth`
 - Campo opcional para URL do LinkedIn
 
 ### 3. Análise com IA (5 agentes visuais)

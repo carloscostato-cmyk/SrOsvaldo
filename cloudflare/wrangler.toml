@@ -26,6 +26,6 @@ compatibility_date = "2026-04-14"
 # id = "<SEU_KV_NAMESPACE_ID>"
 
 # Base de usuarios para login/senha:
-# [[kv_namespaces]]
-# binding = "USERS_KV"
-# id = "<SEU_USERS_KV_NAMESPACE_ID>"
+[[kv_namespaces]]
+binding = "USERS_KV"
+id = "1e0fbd761a4147749c2733e51bf8952d"

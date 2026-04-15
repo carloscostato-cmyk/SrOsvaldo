@@ -681,27 +681,61 @@ function initDropzone() {
 }
 function handleFileSelect(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
 
+function getFileExtension(fileName) {
+  const parts = String(fileName || '').split('.');
+  if (parts.length < 2) return '';
+  return parts.pop().trim().toLowerCase();
+}
+
+async function extractDocxText(file) {
+  if (typeof mammoth === 'undefined' || typeof mammoth.extractRawText !== 'function') {
+    throw new Error('A biblioteca de leitura de DOCX nao foi carregada.');
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({ arrayBuffer });
+  return String(result?.value || '').trim();
+}
+
 async function processFile(file) {
-  if (!/\.(pdf|txt|doc|docx)$/i.test(file.name)) { showToast('Formato não suportado.', 'error'); return; }
+  if (!/\.(pdf|txt|doc|docx)$/i.test(file.name)) { showToast('Formato nao suportado.', 'error'); return; }
   AppState.uploadedFile = file;
   AppState.uploadedFileBytes = await file.arrayBuffer();
   document.getElementById('fileName').textContent = file.name;
   document.getElementById('fileSize').textContent = formatSize(file.size);
   document.getElementById('filePreview').classList.add('visible');
 
-  if (file.name.endsWith('.pdf')) {
+  const extension = getFileExtension(file.name);
+
+  if (extension === 'pdf') {
     showToast('Extraindo texto do PDF...', 'info');
     try {
       const text = await extractPDFText(file);
       if (text && text.trim().length > 10) {
         document.getElementById('resumeText').value = text;
-        showToast('PDF lido com sucesso! ✅', 'success');
+        showToast('PDF lido com sucesso!', 'success');
       }
-    } catch (e) { console.error(e); showToast('Cole o texto manualmente se necessário.', 'info'); }
-  } else if (file.name.endsWith('.txt')) {
+    } catch (e) { console.error(e); showToast('Cole o texto manualmente se necessario.', 'info'); }
+  } else if (extension === 'txt') {
     const r = new FileReader();
-    r.onload = ev => { document.getElementById('resumeText').value = ev.target.result; showToast('Texto extraído!', 'success'); };
+    r.onload = ev => { document.getElementById('resumeText').value = ev.target.result; showToast('Texto extraido!', 'success'); };
     r.readAsText(file);
+  } else if (extension === 'docx') {
+    showToast('Lendo arquivo DOCX...', 'info');
+    try {
+      const text = await extractDocxText(file);
+      if (text && text.trim().length > 10) {
+        document.getElementById('resumeText').value = text;
+        showToast('DOCX lido com sucesso!', 'success');
+      } else {
+        showToast('Nao conseguimos extrair texto do DOCX. Cole o conteudo manualmente.', 'warning');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Nao foi possivel ler o DOCX. Converta para PDF ou cole o texto manualmente.', 'warning');
+    }
+  } else if (extension === 'doc') {
+    showToast('Arquivos .DOC antigos nao tem suporte nativo. Converta para .DOCX ou PDF.', 'warning');
   }
 }
 

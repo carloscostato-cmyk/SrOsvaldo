@@ -414,9 +414,6 @@ export default {
       return new Response(null, { headers: addSecurityHeaders(corsHeaders(origin, allowedOrigin)) });
     }
 
-    if (!env.GEMINI_API_KEY) {
-      return jsonResponse({ ok: false, message: 'GEMINI_API_KEY nao configurada no Worker.' }, 500, origin, allowedOrigin);
-    }
 
     const { pathname } = new URL(request.url);
 
