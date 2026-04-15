@@ -590,6 +590,49 @@ async function restoreAndValidateSavedApiKey() {
   return checkAiServiceConnection(false);
 }
 
+// Fetch runtime public config from the Worker (non-sensitive): google client id and allowed origin
+async function loadServerConfig() {
+  try {
+    const cfgUrl = getAuthApiUrl('/api/config');
+    if (!cfgUrl) {
+      // No config URL available — explicitly disable Google login (no fallback)
+      window.SR_OSVALDO_GOOGLE_CLIENT_ID = '';
+      safeStorageSet('sr_osvaldo_google_client_id', '');
+      updateGoogleOriginDiagnosticsHint();
+      return false;
+    }
+
+    const r = await fetch(cfgUrl, { method: 'GET' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data?.ok) {
+      if (data.googleClientId) {
+        window.SR_OSVALDO_GOOGLE_CLIENT_ID = data.googleClientId;
+        safeStorageSet('sr_osvaldo_google_client_id', data.googleClientId);
+      } else {
+        // ensure we don't fall back to any hard-coded Client ID
+        window.SR_OSVALDO_GOOGLE_CLIENT_ID = '';
+        safeStorageSet('sr_osvaldo_google_client_id', '');
+      }
+      if (data.allowedOrigin && data.allowedOrigin !== '*') {
+        window.SR_OSVALDO_GOOGLE_ALLOWED_ORIGINS = [data.allowedOrigin];
+      }
+      updateGoogleOriginDiagnosticsHint();
+      return Boolean(data.googleClientId);
+    }
+    // If response not ok, disable Google login to avoid fallback
+    window.SR_OSVALDO_GOOGLE_CLIENT_ID = '';
+    safeStorageSet('sr_osvaldo_google_client_id', '');
+    updateGoogleOriginDiagnosticsHint();
+    return false;
+  } catch (e) {
+    console.error('loadServerConfig error:', e);
+    window.SR_OSVALDO_GOOGLE_CLIENT_ID = '';
+    safeStorageSet('sr_osvaldo_google_client_id', '');
+    updateGoogleOriginDiagnosticsHint();
+    return false;
+  }
+}
+
 async function saveEndpointAndTest() {
   const endpoint = saveAiEndpoint(getCurrentAiEndpointValue());
   if (!endpoint) {
@@ -1651,8 +1694,15 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLogin();
   initDropzone();
   updateApiStatus();
-  initGoogleIdentity();
-  restoreAndValidateSavedApiKey();
+  // Load server config first (may set Google Client ID). If config obtained, init Google; otherwise disable Google login to avoid fallback.
+  loadServerConfig().then((ok) => {
+    if (ok) {
+      initGoogleIdentity();
+    } else {
+      updateGoogleLoginHint('Login Google desativado: Client ID nao disponivel no servidor. Configure o Worker ou atualize SR_OSVALDO_GOOGLE_CLIENT_ID.', 'error');
+    }
+    restoreAndValidateSavedApiKey();
+  });
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
   console.log('🎩 Sr. OSvaldo v4.0 — Login & Coach Added');
 });

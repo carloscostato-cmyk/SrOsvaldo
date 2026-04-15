@@ -242,7 +242,7 @@ function randomHex(byteLength = 16) {
   return bytesToHex(bytes);
 }
 
-async function hashPassword(password, saltHex, iterations = 120000) {
+async function hashPassword(password, saltHex, iterations = 100000) {
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -265,7 +265,7 @@ async function hashPassword(password, saltHex, iterations = 120000) {
 
 async function verifyPassword(password, record) {
   if (!record?.hash || !record?.salt) return false;
-  const derivedHash = await hashPassword(password, record.salt, Number(record.iterations || 120000));
+  const derivedHash = await hashPassword(password, record.salt, Number(record.iterations || 100000));
   return constantTimeEqual(String(derivedHash), String(record.hash));
 }
 
@@ -458,6 +458,34 @@ export default {
       }
     }
 
+    // Public runtime config (non-sensitive): exposes Google Client ID and allowed origin
+    if (request.method === 'GET' && pathname === '/api/config') {
+      try {
+        const googleClientId = env.GOOGLE_CLIENT_ID || null;
+        const allowedOriginVar = env.ALLOWED_ORIGIN || '*';
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 200,
+          durationMs: Date.now() - startedAt,
+          ip,
+        });
+        return jsonResponse({ ok: true, googleClientId, allowedOrigin: allowedOriginVar }, 200, origin, allowedOriginVar);
+      } catch (e) {
+        await logEvent(env, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          status: 500,
+          durationMs: Date.now() - startedAt,
+          ip,
+          reason: String(e?.message || ''),
+        });
+        return jsonResponse({ ok: false, error: String(e?.message || 'Falha ao obter configuracao') }, 500, origin, allowedOrigin);
+      }
+    }
+
     if (request.method === 'POST' && pathname === '/api/auth/register') {
       try {
         const body = await readJsonBody(request);
@@ -495,7 +523,7 @@ export default {
         }
 
         const salt = randomHex(16);
-        const iterations = 120000;
+        const iterations = 100000;
         const hash = await hashPassword(password, salt, iterations);
         const record = {
           email,
