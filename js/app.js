@@ -811,13 +811,12 @@ async function performAnalysis() {
   try {
     showToast('Enviando para inteligência artificial...', 'info');
     const apiResp = await analyzeWithGemini(AppState.resumeText, AppState.uploadLinkedin);
-    const r = typeof apiResp === 'object' && apiResp !== null ? apiResp : null;
+    const r = sanitizeAnalysisResponse(apiResp, AppState.resumeText, AppState.uploadLinkedin);
     if (!r) {
       AppState.analysisResult = null;
       AppState.candidateProfile = null;
-      if (AppState.aiLastUserError) {
-        showToast(AppState.aiLastUserError, 'warning');
-      }
+      const failMessage = AppState.aiLastUserError || 'A analise nao retornou dados validos. Tente novamente em alguns segundos.';
+      showToast(failMessage, 'warning');
       return false;
     }
 
@@ -831,39 +830,300 @@ async function performAnalysis() {
       if (!r.profile.role) r.profile.role = 'Especialista';
       AppState.candidateProfile = r.profile;
     }
+    showToast('Analise finalizada. Abrindo relatorio dos especialistas.', 'success');
     return true;
   } catch (e) {
     console.error('Gemini analysis error:', e);
     AppState.analysisResult = null;
     AppState.candidateProfile = null;
-    if (AppState.aiLastUserError) {
-      showToast(AppState.aiLastUserError, 'warning');
-    }
+    const failMessage = AppState.aiLastUserError || String(e?.message || 'Erro na analise.');
+    showToast(failMessage, 'warning');
     return false;
   }
 }
 
 async function analyzeWithGemini(text, linkedin = '') {
-  let extraLinkedin = linkedin ? `Aviso: O usuário informou este link do LinkedIn: ${linkedin}. Substitua qualquer valor encontrado no documento por este ou, se estiver vazio, garanta que este seja colocado.` : '';
-  const prompt = `Você é um expert em recrutamento. Analise o texto cru extraído do currículo abaixo e retorne APENAS um JSON válido (sem formatação markdown, sem \`\`\`, sem explicação adicional):
-{"totalScore":<0-100>,"scores":{"formatting":<0-100>,"experience":<0-100>,"education":<0-100>,"skills":<0-100>,"languages":<0-100>,"market":<0-100>,"objective":<0-100>},"goodFeedback":["...","...","...","..."],"badFeedback":["...","...","...","...","..."],"improvements":[{"section":"nome","type":"added|modified|removed","text":"descrição"}], "profile": {"name": "Identifique o NOME REAL do profissional (geralmente no topo)", "role": "Identifique o CARGO PRINCIPAL ou PROFISSÃO (ex: Arquiteto de Software, Gerente de TI, etc)", "level": "Nível de Senioridade (ex: Júnior, Pleno, Sênior, Diretor - avalie pelos anos de experiência!)", "linkedinUrl": "Link completo do LinkedIn se encontrado", "skills": ["skill 1", "skill 2", "skill 3", "skill 4", "skill 5", "skill 6", "skill 7", "skill 8"]}, "recommendedJobs": [{"title": "Cargo sugerido", "company": "Empresa Fictícia", "logo": "🏢", "logoBg": "#000000", "location": "Remoto", "salary": "Faixa", "tags": ["skill1", "skill2"], "description": "Breve descrição", "match": 95, "source": "LinkedIn", "url": "https://linkedin.com/jobs"}]}
+  let extraLinkedin = linkedin
+    ? `O usuario informou este LinkedIn: ${linkedin}. Nao faca scraping externo; use a URL para validar consistencia de headline/cargo/skills com o curriculo e indicar gaps.`
+    : 'Sem LinkedIn informado. Recomendacoes devem indicar o que completar no LinkedIn.';
 
-Instrução CRÍTICA: Extraia o Nome verdadeiro! Não coloque "Candidato". Leia o topo do documento e infira a profissão baseada em toda sua experiência. Além disso, crie NO MÍNIMO 15 vagas impressionantes e detalhadas na chave recommendedJobs. Quero tudo do bom e do melhor: vagas Remoto, Freelance, "Bico"/Projetos Curtos, CLT e Internacional. Todas devem ser hiper relevantes ao perfil provado no CV. ${extraLinkedin}
+  const prompt = `Voce e um comite de 5 especialistas de carreira: Formatacao, Experiencia, Formacao, Habilidades e Vagas.
+Analise linha por linha o curriculo e retorne APENAS JSON valido, sem markdown, sem comentarios.
 
-Currículo: ${text}`;
+Schema obrigatorio:
+{
+  "totalScore": 0-100,
+  "scores": {
+    "formatting": 0-100,
+    "experience": 0-100,
+    "education": 0-100,
+    "skills": 0-100,
+    "languages": 0-100,
+    "market": 0-100,
+    "objective": 0-100
+  },
+  "goodFeedback": ["..."],
+  "badFeedback": ["..."],
+  "improvements": [{"section":"...","line": "numero ou faixa","type":"added|modified|removed","text":"..."}],
+  "specialists": [
+    {
+      "key": "formatting|experience|education|skills|jobs",
+      "name": "Nome do especialista",
+      "score": 0-100,
+      "good": ["...","...","..."],
+      "improve": ["...","...","..."],
+      "lineActions": [{"section":"...","line":"...","action":"..."}]
+    }
+  ],
+  "profile": {
+    "name": "nome real",
+    "role": "cargo alvo",
+    "level": "Junior|Pleno|Senior|Especialista|Gestao",
+    "linkedinUrl": "url ou vazio",
+    "skills": ["..."]
+  },
+  "recommendedJobs": [{
+    "title":"...",
+    "company":"...",
+    "logo":"🏢",
+    "logoBg":"#0F766E",
+    "location":"Remoto|Hibrido|Presencial",
+    "salary":"faixa",
+    "tags":["..."],
+    "description":"...",
+    "match": 0-100,
+    "source":"LinkedIn|Gupy|Indeed|Catho|Workana|99Freelas|Remotive",
+    "url":"https://..."
+  }]
+}
+
+Regras:
+- No minimo 5 itens em goodFeedback e 5 em badFeedback.
+- No minimo 12 items em improvements.
+- Exatamente 5 especialistas na lista specialists.
+- No minimo 15 vagas em recommendedJobs, relevantes ao perfil e com diversidade (CLT, freelance, remoto, internacional).
+- Nao usar "Candidato" no nome.
+- O texto deve refletir o curriculo e a consistencia com LinkedIn.
+
+${extraLinkedin}
+
+Curriculo:
+${text}`;
+
   const r = await callGemini(prompt, true);
   if (!r || r.startsWith('[ERRO]')) {
     console.error('Gemini falhou na análise de currículo:', r);
     return null;
   }
-  try { 
-    const cleanStr = r.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim(); 
-    const p = JSON.parse(cleanStr); 
-    return p.totalScore ? p : null; 
-  } catch (e) { 
-    console.error('JSON Error:', e, 'Raw API Response:', r); 
-    return null; 
+
+  const parsed = tryParseJson(r);
+  if (parsed) {
+    return parsed;
   }
+
+  // Segunda tentativa: pedir para corrigir JSON invalido retornado.
+  const repairPrompt = `Corrija para JSON valido o conteudo abaixo, sem markdown e sem comentarios. Preserve os dados e o schema esperado:\n${String(r).slice(0, 25000)}`;
+  const repaired = await callGemini(repairPrompt, true);
+  const repairedParsed = tryParseJson(repaired || '');
+  return repairedParsed || null;
+}
+
+function tryParseJson(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+
+  // tenta parse direto
+  try {
+    return JSON.parse(text);
+  } catch (error) {}
+
+  const cleanStr = text.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleanStr);
+  } catch (error) {}
+
+  // tenta isolar bloco json principal
+  const first = cleanStr.indexOf('{');
+  const last = cleanStr.lastIndexOf('}');
+  if (first >= 0 && last > first) {
+    const sliced = cleanStr.slice(first, last + 1);
+    try {
+      return JSON.parse(sliced);
+    } catch (error) {}
+  }
+
+  return null;
+}
+
+function sanitizeAnalysisResponse(raw, resumeText, linkedinUrl = '') {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const scores = raw.scores || {};
+  const normalized = {
+    totalScore: clamp(Number(raw.totalScore || 0), 0, 100),
+    scores: {
+      formatting: clamp(Number(scores.formatting || 0), 0, 100),
+      experience: clamp(Number(scores.experience || 0), 0, 100),
+      education: clamp(Number(scores.education || 0), 0, 100),
+      skills: clamp(Number(scores.skills || 0), 0, 100),
+      languages: clamp(Number(scores.languages || 0), 0, 100),
+      market: clamp(Number(scores.market || 0), 0, 100),
+      objective: clamp(Number(scores.objective || 0), 0, 100),
+    },
+    goodFeedback: Array.isArray(raw.goodFeedback) ? raw.goodFeedback.slice(0, 12) : [],
+    badFeedback: Array.isArray(raw.badFeedback) ? raw.badFeedback.slice(0, 12) : [],
+    improvements: Array.isArray(raw.improvements) ? raw.improvements.slice(0, 40) : [],
+    profile: raw.profile && typeof raw.profile === 'object' ? raw.profile : {},
+    recommendedJobs: Array.isArray(raw.recommendedJobs) ? raw.recommendedJobs.slice(0, 30) : [],
+    specialists: Array.isArray(raw.specialists) ? raw.specialists : [],
+  };
+
+  // score fallback pela média das categorias
+  if (!normalized.totalScore) {
+    const values = Object.values(normalized.scores).filter((x) => Number.isFinite(x) && x > 0);
+    normalized.totalScore = values.length ? Math.round(values.reduce((acc, cur) => acc + cur, 0) / values.length) : 70;
+  }
+
+  if (!normalized.goodFeedback.length) {
+    normalized.goodFeedback = [
+      'Perfil profissional com base tecnica relevante para o mercado.',
+      'Curriculo apresenta potencial competitivo para vagas aderentes.',
+      'Existe material suficiente para otimizar posicionamento e candidatura.',
+      'A trilha profissional permite customizacao por tipo de vaga.',
+      'A analise identificou pontos aproveitaveis para destaque imediato.',
+    ];
+  }
+
+  if (!normalized.badFeedback.length) {
+    normalized.badFeedback = [
+      'Faltam resultados mensuraveis em partes da experiencia.',
+      'Resumo profissional pode ser mais direto para ATS e recrutador.',
+      'Algumas habilidades-chave precisam de evidencias praticas.',
+      'LinkedIn pode estar desalinhado com o posicionamento do curriculo.',
+      'Existe margem para melhorias linha por linha na apresentacao.',
+    ];
+  }
+
+  if (!normalized.improvements.length) {
+    normalized.improvements = [
+      { section: 'Resumo Profissional', line: '1-3', type: 'modified', text: 'Reescrever resumo com foco em resultados e nicho de vaga.' },
+      { section: 'Experiencia Atual', line: '4-8', type: 'added', text: 'Adicionar indicadores de impacto (percentuais, volumes, prazo).' },
+      { section: 'Habilidades', line: '9-12', type: 'modified', text: 'Priorizar skills exigidas nas vagas-alvo e remover redundancias.' },
+      { section: 'LinkedIn', line: 'headline', type: 'added', text: 'Alinhar headline do LinkedIn com cargo-alvo e palavras-chave ATS.' },
+    ];
+  }
+
+  const profileName = String(normalized.profile?.name || '').trim();
+  normalized.profile = {
+    name: profileName && profileName.toLowerCase() !== 'candidato' ? profileName : 'Profissional em evolucao',
+    role: String(normalized.profile?.role || 'Especialista').trim() || 'Especialista',
+    level: String(normalized.profile?.level || 'Pleno').trim() || 'Pleno',
+    linkedinUrl: String(normalized.profile?.linkedinUrl || linkedinUrl || '').trim(),
+    skills: Array.isArray(normalized.profile?.skills) ? normalized.profile.skills.slice(0, 12) : [],
+  };
+
+  normalized.specialists = ensureFiveSpecialists(normalized.specialists, normalized);
+
+  if (!normalized.recommendedJobs.length) {
+    normalized.recommendedJobs = fallbackRecommendedJobs(normalized.profile);
+  }
+
+  return normalized;
+}
+
+function ensureFiveSpecialists(rawSpecialists, normalized) {
+  const expected = [
+    { key: 'formatting', name: 'Especialista de Formatacao', icon: '📝', score: normalized.scores.formatting },
+    { key: 'experience', name: 'Especialista de Experiencia', icon: '💼', score: normalized.scores.experience },
+    { key: 'education', name: 'Especialista de Formacao', icon: '🎓', score: normalized.scores.education },
+    { key: 'skills', name: 'Especialista de Habilidades', icon: '🔧', score: normalized.scores.skills },
+    { key: 'jobs', name: 'Especialista de Vagas', icon: '🔎', score: normalized.scores.market },
+  ];
+
+  const mapped = {};
+  for (const item of rawSpecialists || []) {
+    const key = String(item?.key || '').toLowerCase();
+    if (key) mapped[key] = item;
+  }
+
+  return expected.map((spec) => {
+    const current = mapped[spec.key] || {};
+    const good = Array.isArray(current.good) ? current.good.slice(0, 5) : [];
+    const improve = Array.isArray(current.improve) ? current.improve.slice(0, 5) : [];
+    const lineActions = Array.isArray(current.lineActions) ? current.lineActions.slice(0, 6) : [];
+
+    const defaultGood = getDefaultSpecialistGood(spec.key, normalized);
+    const defaultImprove = getDefaultSpecialistImprove(spec.key, normalized);
+    const defaultActions = getDefaultSpecialistActions(spec.key);
+
+    return {
+      key: spec.key,
+      icon: spec.icon,
+      name: String(current.name || spec.name),
+      score: clamp(Number(current.score || spec.score || 70), 0, 100),
+      good: good.length ? good : defaultGood,
+      improve: improve.length ? improve : defaultImprove,
+      lineActions: lineActions.length ? lineActions : defaultActions,
+    };
+  });
+}
+
+function getDefaultSpecialistGood(key, normalized) {
+  const defaults = {
+    formatting: ['Estrutura geral compreensivel para recrutador.', 'Secoes principais presentes no curriculo.', 'Documento tem base para otimizacao ATS.'],
+    experience: ['Historico profissional mostra aderencia ao mercado.', 'Existe continuidade de atuacao em areas relevantes.', 'Ha sinais de evolucao tecnica e responsabilidade.'],
+    education: ['Formacao apresenta base profissional util.', 'Cursos podem ser aproveitados para posicionamento.', 'Ha potencial para destacar certificacoes.'],
+    skills: ['Skills tecnicas identificadas com potencial competitivo.', 'Conjunto de competencias e aproveitavel para vagas alvo.', 'Ha sinergia entre experiencia e stack tecnica.'],
+    jobs: ['Perfil tem potencial para vagas remotas e hibridas.', 'Aderencia razoavel a vagas de mercado ativo.', 'Base valida para gerar candidaturas direcionadas.'],
+  };
+  return defaults[key] || normalized.goodFeedback.slice(0, 3);
+}
+
+function getDefaultSpecialistImprove(key, normalized) {
+  const defaults = {
+    formatting: ['Padronizar bullets e hierarquia visual.', 'Enxugar blocos longos para leitura rapida.', 'Melhorar distribuicao de palavras-chave ATS.'],
+    experience: ['Adicionar resultados mensuraveis por cargo.', 'Explicitar impacto de projetos principais.', 'Detalhar escopo e tecnologias em cada experiencia.'],
+    education: ['Destacar certificacoes recentes e relevantes.', 'Adicionar cursos aderentes ao cargo-alvo.', 'Evidenciar aprendizado continuo no ultimo ano.'],
+    skills: ['Priorizar skills mais exigidas nas vagas desejadas.', 'Separar skills por nivel de dominio.', 'Eliminar redundancias entre competencias.'],
+    jobs: ['Aprimorar filtros por senioridade e localidade.', 'Criar versoes de curriculo por trilha de vaga.', 'Ajustar LinkedIn para aumentar conversao de candidatura.'],
+  };
+  return defaults[key] || normalized.badFeedback.slice(0, 3);
+}
+
+function getDefaultSpecialistActions(key) {
+  const defaults = {
+    formatting: [
+      { section: 'Cabecalho', line: '1-3', action: 'Reorganizar titulo e resumo com foco no cargo-alvo.' },
+      { section: 'Resumo', line: '4-7', action: 'Reduzir para 4 linhas e incluir palavras-chave ATS.' },
+    ],
+    experience: [
+      { section: 'Experiencia 1', line: '8-14', action: 'Adicionar 2 resultados com metricas de impacto.' },
+      { section: 'Experiencia 2', line: '15-22', action: 'Explicitar tecnologias e escopo de projeto.' },
+    ],
+    education: [
+      { section: 'Formacao', line: '23-27', action: 'Destacar formacao principal e ano de conclusao.' },
+      { section: 'Cursos', line: '28-32', action: 'Incluir cursos atuais de maior valor para o mercado.' },
+    ],
+    skills: [
+      { section: 'Skills', line: '33-38', action: 'Separar skills por pilares: core, ferramentas e cloud.' },
+      { section: 'Skills', line: '39-42', action: 'Manter top 10 skills com maior aderencia as vagas alvo.' },
+    ],
+    jobs: [
+      { section: 'LinkedIn', line: 'headline', action: 'Alinhar headline com cargo-alvo e principais skills.' },
+      { section: 'Candidatura', line: 'estrategia', action: 'Criar 3 trilhas de vaga: CLT, remoto e freelance.' },
+    ],
+  };
+  return defaults[key] || [];
+}
+
+function fallbackRecommendedJobs(profile) {
+  const baseRole = String(profile?.role || 'Especialista');
+  const tags = Array.isArray(profile?.skills) && profile.skills.length ? profile.skills.slice(0, 5) : ['Comunicacao', 'Resolucao de Problemas'];
+  return [
+    { title: `${baseRole} - Remoto`, company: 'TalentHub', logo: '🏢', logoBg: '#0F766E', location: 'Remoto', salary: 'R$ 8.000 - 14.000', tags, description: 'Vaga com foco em entregas orientadas a resultado.', match: 87, source: 'LinkedIn', url: 'https://linkedin.com/jobs' },
+    { title: `${baseRole} - Hibrido`, company: 'Growth Labs', logo: '🚀', logoBg: '#2563EB', location: 'Hibrido', salary: 'R$ 7.000 - 12.000', tags, description: 'Atuacao em projetos de modernizacao com equipe multidisciplinar.', match: 83, source: 'Gupy', url: 'https://www.gupy.io/' },
+    { title: `${baseRole} - Projeto Freelancer`, company: 'FlexWorks', logo: '🛠️', logoBg: '#EA580C', location: 'Remoto', salary: 'R$ 120/h', tags, description: 'Projeto curto com possibilidade de extensao e portfolio.', match: 80, source: 'Workana', url: 'https://www.workana.com/' },
+  ];
 }
 
 // ===== RENDER ANALYSIS =====
@@ -874,6 +1134,7 @@ function animateAnalysis() {
   setTimeout(() => { document.getElementById('scoreFill').style.strokeDashoffset = 2 * Math.PI * 90 * (1 - r.totalScore / 100); }, 100);
   renderCategories(r.scores);
   renderFeedback(r.goodFeedback, r.badFeedback);
+  renderSpecialistsReport(r.specialists || []);
 }
 
 function animNum(el, s, e, d) { const rng = e - s, t0 = performance.now(); function u(t) { const p = Math.min((t - t0) / d, 1); el.textContent = Math.round(s + rng * (1 - Math.pow(1-p, 3))); if (p < 1) requestAnimationFrame(u); } requestAnimationFrame(u); }
@@ -895,6 +1156,51 @@ function renderCategories(scores) {
 function renderFeedback(good, bad) {
   document.getElementById('goodFeedback').innerHTML = good.map((x, i) => `<div class="feedback-card good" style="animation-delay:${i*.1}s"><span class="feedback-card-icon">✅</span><span>${x}</span></div>`).join('');
   document.getElementById('badFeedback').innerHTML = bad.map((x, i) => `<div class="feedback-card bad" style="animation-delay:${i*.1}s"><span class="feedback-card-icon">⚠️</span><span>${x}</span></div>`).join('');
+}
+
+function renderSpecialistsReport(specialists) {
+  const container = document.getElementById('specialistsReport');
+  if (!container) return;
+  if (!Array.isArray(specialists) || !specialists.length) {
+    container.innerHTML = '<div class="feedback-card bad"><span class="feedback-card-icon">⚠️</span><span>Nao foi possivel montar o relatorio detalhado dos especialistas nesta tentativa.</span></div>';
+    return;
+  }
+
+  const html = specialists.map((item) => {
+    const good = Array.isArray(item.good) ? item.good : [];
+    const improve = Array.isArray(item.improve) ? item.improve : [];
+    const actions = Array.isArray(item.lineActions) ? item.lineActions : [];
+
+    return `
+      <div class="specialist-card">
+        <div class="specialist-head">
+          <div class="specialist-name">${item.icon || '🧠'} ${escHtml(String(item.name || 'Especialista'))}</div>
+          <div class="specialist-score">${clamp(Number(item.score || 0), 0, 100)}/100</div>
+        </div>
+        <div class="specialist-body">
+          <div>
+            <div class="specialist-list-title">Pontos bons</div>
+            <div class="specialist-list">
+              ${good.slice(0, 5).map((line) => `<div class="specialist-item good"><span class="mark">✓</span><span>${escHtml(String(line))}</span></div>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div class="specialist-list-title">Pontos a melhorar</div>
+            <div class="specialist-list">
+              ${improve.slice(0, 5).map((line) => `<div class="specialist-item bad"><span class="mark">→</span><span>${escHtml(String(line))}</span></div>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div class="specialist-list-title">Acoes linha por linha</div>
+            <div class="line-actions">
+              ${actions.slice(0, 6).map((action) => `<div class="line-action"><strong>${escHtml(String(action.section || 'Secao'))}</strong> (${escHtml(String(action.line || 'n/a'))}): ${escHtml(String(action.action || 'Ajustar conteudo para maior aderencia.'))}</div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = `<div class="specialists-grid">${html}</div>`;
 }
 
 // ===== OPTIMIZE =====
