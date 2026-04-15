@@ -313,6 +313,76 @@ function setLoggedInUser(user, provider = 'local') {
   localStorage.setItem('sr_osvaldo_auth_provider', provider);
 }
 
+// --- Local (browser) users ---
+function _bytesToBase64(bytes) {
+  let binary = '';
+  const arr = new Uint8Array(bytes);
+  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+  return btoa(binary);
+}
+
+function _base64ToUint8Array(b64) {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function generateSaltBase64(len = 16) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return _bytesToBase64(arr);
+}
+
+async function deriveKeyBase64(password, saltBase64, iterations = 100000) {
+  const enc = new TextEncoder();
+  const pwKey = await crypto.subtle.importKey('raw', enc.encode(String(password)), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const salt = _base64ToUint8Array(saltBase64);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, pwKey, 256);
+  return _bytesToBase64(derivedBits);
+}
+
+function _getLocalUsers() {
+  try {
+    const raw = localStorage.getItem('sr_local_users');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+
+function _saveLocalUsers(users) {
+  try { localStorage.setItem('sr_local_users', JSON.stringify(users)); return true; } catch (e) { return false; }
+}
+
+async function createLocalUser(name, email, password) {
+  const key = normalizeEmail(email);
+  if (!key) throw new Error('E-mail inválido.');
+  const users = _getLocalUsers();
+  if (users[key]) throw new Error('Já existe uma conta local com esse e-mail neste navegador.');
+  const salt = generateSaltBase64(16);
+  const hash = await deriveKeyBase64(password, salt, 100000);
+  users[key] = { name: String(name || '').trim(), email: key, salt, hash, iterations: 100000, createdAt: new Date().toISOString(), provider: 'local' };
+  _saveLocalUsers(users);
+  return users[key];
+}
+
+async function verifyLocalUser(email, password) {
+  const key = normalizeEmail(email);
+  if (!key) return null;
+  const users = _getLocalUsers();
+  const u = users[key];
+  if (!u) return null;
+  const derived = await deriveKeyBase64(password, u.salt, u.iterations || 100000);
+  if (derived === u.hash) return u;
+  return null;
+}
+
+function isNetworkError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  if (err?.name === 'TypeError') return true;
+  return /failed to fetch|network|fetch failed|networkerror/.test(msg);
+}
+
 async function handleSignup() {
   const name = document.getElementById('signupName')?.value.trim() || '';
   const email = normalizeEmail(document.getElementById('signupEmail')?.value);
@@ -379,7 +449,20 @@ async function handleSignup() {
       showToast('Conta criada com sucesso! 🎩', 'success');
     }
   } catch (error) {
-    setSignupModalFeedback(String(error?.message || 'Falha ao criar conta.'), 'error');
+    // If the failure looks like a network error and Firebase isn't configured, fallback to local browser-only account
+    if (!isFirebaseConfigured() && isNetworkError(error)) {
+      try {
+        const localUser = await createLocalUser(name, email, password);
+        setLoggedInUser({ email: localUser.email, name: localUser.name }, 'local');
+        closeSignupModal();
+        document.getElementById('loginGate')?.classList.add('hidden');
+        showToast('Conta criada localmente neste navegador. Não sincroniza entre dispositivos.', 'success');
+      } catch (le) {
+        setSignupModalFeedback(String(le?.message || 'Falha ao criar conta localmente.'), 'error');
+      }
+    } else {
+      setSignupModalFeedback(String(error?.message || 'Falha ao criar conta.'), 'error');
+    }
   } finally {
     setSignupButtonLoading(false);
   }
@@ -440,7 +523,24 @@ async function handleLogin() {
       showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
     }
   } catch (error) {
-    showToast(String(error?.message || 'Falha ao entrar.'), 'error');
+    // If network error and Firebase not configured, attempt local verification
+    if (!isFirebaseConfigured() && isNetworkError(error)) {
+      try {
+        const local = await verifyLocalUser(email, password);
+        if (local) {
+          setLoggedInUser({ email: local.email, name: local.name || local.email }, 'local');
+          document.getElementById('loginGate')?.classList.add('hidden');
+          showToast('Entrou com conta local neste navegador.', 'success');
+        } else {
+          showToast('E-mail ou senha inválidos (local).', 'error');
+        }
+      } catch (le) {
+        console.error('Local login error:', le);
+        showToast(String(le?.message || 'Falha ao entrar.'), 'error');
+      }
+    } else {
+      showToast(String(error?.message || 'Falha ao entrar.'), 'error');
+    }
   } finally {
     if (loginBtn) {
       loginBtn.disabled = false;
