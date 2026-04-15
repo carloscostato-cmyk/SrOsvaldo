@@ -94,6 +94,72 @@ function getGoogleAllowedOrigins() {
     .filter(Boolean);
 }
 
+// --- Firebase helpers ---
+function isFirebaseConfigured() {
+  return Boolean(window.SR_FIREBASE_CONFIG && window.SR_FIREBASE_CONFIG.apiKey && typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function');
+}
+
+function initFirebaseIfNeeded() {
+  if (!isFirebaseConfigured()) return false;
+  try {
+    if (!window.__srFirebaseInitialized) {
+      firebase.initializeApp(window.SR_FIREBASE_CONFIG);
+      window.__srFirebaseInitialized = true;
+      firebase.auth().onAuthStateChanged((user) => {
+        if (user) {
+          setLoggedInUser({ email: user.email, name: user.displayName || user.email, picture: user.photoURL }, 'firebase');
+          document.getElementById('loginGate')?.classList.add('hidden');
+        } else {
+          sessionStorage.removeItem('sr_osvaldo_session');
+          localStorage.removeItem('sr_osvaldo_user');
+          localStorage.removeItem('sr_osvaldo_user_name');
+          localStorage.removeItem('sr_osvaldo_user_picture');
+          document.getElementById('loginGate')?.classList.remove('hidden');
+        }
+      });
+    }
+    return true;
+  } catch (e) {
+    console.error('Firebase init error:', e);
+    return false;
+  }
+}
+
+function initFirebaseGoogleIdentity() {
+  if (!isFirebaseConfigured()) return false;
+  try {
+    const container = document.getElementById('googleSignInButton');
+    if (!container) return false;
+    if (!container.querySelector('.sr-fb-google-btn')) {
+      container.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.className = 'sr-fb-google-btn';
+      btn.textContent = 'Continuar com Google';
+      btn.style.padding = '12px 18px';
+      btn.style.borderRadius = '10px';
+      btn.style.border = '1px solid #cbd5e1';
+      btn.onclick = async () => {
+        try {
+          const provider = new firebase.auth.GoogleAuthProvider();
+          const result = await firebase.auth().signInWithPopup(provider);
+          const user = result.user;
+          setLoggedInUser({ email: user.email, name: user.displayName || user.email, picture: user.photoURL }, 'firebase');
+          document.getElementById('loginGate')?.classList.add('hidden');
+          showToast(`Bem-vindo, ${user.displayName || user.email}!`, 'success');
+        } catch (err) {
+          console.error('Firebase Google sign-in error:', err);
+          showToast('Falha no login com Google.', 'error');
+        }
+      };
+      container.appendChild(btn);
+    }
+    return true;
+  } catch (e) {
+    console.error('initFirebaseGoogleIdentity error:', e);
+    return false;
+  }
+}
+
 function updateGoogleLoginHint(message = '', type = 'info') {
   const container = document.getElementById('googleSignInButton');
   if (!container) return;
@@ -282,20 +348,36 @@ async function handleSignup() {
 
   setSignupButtonLoading(true);
   try {
-    const response = await fetch(authUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || data?.message || 'Falha ao criar conta.');
-    }
+    // Prefer Firebase client-side auth when configured
+    if (isFirebaseConfigured() && initFirebaseIfNeeded()) {
+      try {
+        const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+        // attempt to set display name
+        try { await userCredential.user.updateProfile({ displayName: name }); } catch (e) {}
+        setLoggedInUser({ email: userCredential.user.email, name: userCredential.user.displayName || name, picture: userCredential.user.photoURL }, 'firebase');
+        closeSignupModal();
+        document.getElementById('loginGate')?.classList.add('hidden');
+        showToast('Conta criada com sucesso! 🎩', 'success');
+      } catch (fbErr) {
+        console.error('Firebase signup error:', fbErr);
+        setSignupModalFeedback(String(fbErr?.message || 'Falha ao criar conta via Firebase.'), 'error');
+      }
+    } else {
+      const response = await fetch(authUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || data?.message || 'Falha ao criar conta.');
+      }
 
-    setLoggedInUser(data.user || { email, name }, 'password');
-    closeSignupModal();
-    document.getElementById('loginGate').classList.add('hidden');
-    showToast('Conta criada com sucesso! 🎩', 'success');
+      setLoggedInUser(data.user || { email, name }, 'password');
+      closeSignupModal();
+      document.getElementById('loginGate')?.classList.add('hidden');
+      showToast('Conta criada com sucesso! 🎩', 'success');
+    }
   } catch (error) {
     setSignupModalFeedback(String(error?.message || 'Falha ao criar conta.'), 'error');
   } finally {
@@ -332,19 +414,31 @@ async function handleLogin() {
   }
 
   try {
-    const response = await fetch(authUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || data?.message || 'E-mail ou senha inválidos.');
-    }
+    if (isFirebaseConfigured() && initFirebaseIfNeeded()) {
+      try {
+        const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+        setLoggedInUser({ email: userCredential.user.email, name: userCredential.user.displayName || userCredential.user.email, picture: userCredential.user.photoURL }, 'firebase');
+        document.getElementById('loginGate')?.classList.add('hidden');
+        showToast(`Bem-vindo, ${userCredential.user.displayName || userCredential.user.email}!`, 'success');
+      } catch (fbErr) {
+        console.error('Firebase login error:', fbErr);
+        showToast(String(fbErr?.message || 'Falha ao entrar com Firebase.'), 'error');
+      }
+    } else {
+      const response = await fetch(authUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || data?.message || 'E-mail ou senha inválidos.');
+      }
 
-    setLoggedInUser(data.user || { email }, 'password');
-    document.getElementById('loginGate').classList.add('hidden');
-    showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
+      setLoggedInUser(data.user || { email }, 'password');
+      document.getElementById('loginGate')?.classList.add('hidden');
+      showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
+    }
   } catch (error) {
     showToast(String(error?.message || 'Falha ao entrar.'), 'error');
   } finally {
@@ -1694,10 +1788,16 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLogin();
   initDropzone();
   updateApiStatus();
-  // Load server config first (may set Google Client ID). If config obtained, init Google; otherwise disable Google login to avoid fallback.
+  // Initialize Firebase (if the page is configured for it) and prefer Firebase Google sign-in when available.
+  if (isFirebaseConfigured()) {
+    initFirebaseIfNeeded();
+    initFirebaseGoogleIdentity();
+  }
+
+  // Load server config first (may set Google Client ID). If config obtained, init Google (only when Firebase is not used); otherwise disable Google login to avoid fallback.
   loadServerConfig().then((ok) => {
     if (ok) {
-      initGoogleIdentity();
+      if (!isFirebaseConfigured()) initGoogleIdentity();
     } else {
       updateGoogleLoginHint('Login Google desativado: Client ID nao disponivel no servidor. Configure o Worker ou atualize SR_OSVALDO_GOOGLE_CLIENT_ID.', 'error');
     }
