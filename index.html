@@ -10,18 +10,7 @@
   <script>
     // Configure aqui a URL do proxy/backend de IA (exemplo Cloudflare Worker).
     window.SR_OSVALDO_AI_ENDPOINT = window.SR_OSVALDO_AI_ENDPOINT || 'https://sr-osvaldo-ai.srosvaldo.workers.dev';
-    // Configure aqui o Client ID OAuth do Google.
-    window.SR_OSVALDO_GOOGLE_CLIENT_ID = window.SR_OSVALDO_GOOGLE_CLIENT_ID || '131661108941-342gtl9j8rci6qi89fjt92b4a3od8g04.apps.googleusercontent.com';
-    // Lista recomendada para conferência rápida de origin_mismatch no OAuth do Google.
-    window.SR_OSVALDO_GOOGLE_ALLOWED_ORIGINS = window.SR_OSVALDO_GOOGLE_ALLOWED_ORIGINS || [
-      'http://localhost:4173',
-      'http://localhost:5500',
-      'http://127.0.0.1:4173',
-      'http://127.0.0.1:5500',
-      'https://carloscostato-cmyk.github.io'
-    ];
   </script>
-  <script src="https://accounts.google.com/gsi/client" defer></script>
   <!-- Firebase (compat) SDK - optional: configure window.SR_FIREBASE_CONFIG with your project values -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -52,9 +41,7 @@
       <h1 class="login-title">Bem-vindo ao Sr. OSvaldo</h1>
       <p class="login-subtitle">Faça login para continuar</p>
       
-      <div class="google-signin-slot" id="googleSignInButton" aria-label="Continuar com Google"></div>
-      
-      <div class="login-divider">OU</div>
+
       
       <div class="login-input-group">
         <label>E-mail</label>

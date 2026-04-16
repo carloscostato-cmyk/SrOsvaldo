@@ -82,17 +82,7 @@ function getAiEndpointInput() {
   return document.getElementById('apiEndpointInput');
 }
 
-function getGoogleClientId() {
-  return String(window.SR_OSVALDO_GOOGLE_CLIENT_ID || safeStorageGet('sr_osvaldo_google_client_id') || '').trim();
-}
 
-function getGoogleAllowedOrigins() {
-  const configured = window.SR_OSVALDO_GOOGLE_ALLOWED_ORIGINS;
-  if (!Array.isArray(configured)) return [];
-  return configured
-    .map((origin) => String(origin || '').trim())
-    .filter(Boolean);
-}
 
 // --- Firebase helpers ---
 function isFirebaseConfigured() {
@@ -125,101 +115,9 @@ function initFirebaseIfNeeded() {
   }
 }
 
-function initFirebaseGoogleIdentity() {
-  if (!isFirebaseConfigured()) return false;
-  try {
-    const container = document.getElementById('googleSignInButton');
-    if (!container) return false;
-    if (!container.querySelector('.sr-fb-google-btn')) {
-      container.innerHTML = '';
-      const btn = document.createElement('button');
-      btn.className = 'sr-fb-google-btn';
-      btn.textContent = 'Continuar com Google';
-      btn.style.padding = '12px 18px';
-      btn.style.borderRadius = '10px';
-      btn.style.border = '1px solid #cbd5e1';
-      btn.onclick = async () => {
-        try {
-          const provider = new firebase.auth.GoogleAuthProvider();
-          const result = await firebase.auth().signInWithPopup(provider);
-          const user = result.user;
-          setLoggedInUser({ email: user.email, name: user.displayName || user.email, picture: user.photoURL }, 'firebase');
-          document.getElementById('loginGate')?.classList.add('hidden');
-          showToast(`Bem-vindo, ${user.displayName || user.email}!`, 'success');
-        } catch (err) {
-          console.error('Firebase Google sign-in error:', err);
-          showToast('Falha no login com Google.', 'error');
-        }
-      };
-      container.appendChild(btn);
-    }
-    return true;
-  } catch (e) {
-    console.error('initFirebaseGoogleIdentity error:', e);
-    return false;
-  }
-}
 
-function updateGoogleLoginHint(message = '', type = 'info') {
-  const container = document.getElementById('googleSignInButton');
-  if (!container) return;
 
-  let hint = document.getElementById('googleSignInHint');
-  if (!hint) {
-    hint = document.createElement('p');
-    hint.id = 'googleSignInHint';
-    hint.style.margin = '8px 0 0';
-    hint.style.fontSize = '.78rem';
-    hint.style.lineHeight = '1.45';
-    hint.style.textAlign = 'left';
-    hint.style.color = '#64748b';
-    container.insertAdjacentElement('afterend', hint);
-  }
 
-  if (!message) {
-    hint.textContent = '';
-    hint.style.display = 'none';
-    return;
-  }
-
-  hint.style.display = 'block';
-  hint.textContent = message;
-  hint.style.color = type === 'error' ? '#b91c1c' : '#64748b';
-}
-
-function updateGoogleOriginDiagnosticsHint() {
-  if (!isGoogleLoginConfigured()) {
-    updateGoogleLoginHint('Login Google desativado: configure SR_OSVALDO_GOOGLE_CLIENT_ID.', 'error');
-    return;
-  }
-
-  const allowedOrigins = getGoogleAllowedOrigins();
-  if (!allowedOrigins.length) {
-    updateGoogleLoginHint('Se ocorrer origin_mismatch, cadastre a origem atual no Google Cloud OAuth.', 'info');
-    return;
-  }
-
-  const currentOrigin = window.location.origin;
-  const isAllowed = allowedOrigins.includes(currentOrigin);
-  if (isAllowed) {
-    updateGoogleLoginHint('', 'info');
-    return;
-  }
-
-  updateGoogleLoginHint(
-    `A origem atual (${currentOrigin}) nao esta na lista recomendada de OAuth. Adicione esta origem no Google Cloud para evitar Error 400 origin_mismatch.`,
-    'error'
-  );
-}
-
-function getGoogleAuthUrl() {
-  const base = getAiProxyEndpoint();
-  return base ? `${base}/api/auth/google` : '';
-}
-
-function isGoogleLoginConfigured() {
-  return Boolean(getGoogleClientId());
-}
 
 function getCurrentAiEndpointValue() {
   const input = getAiEndpointInput();
@@ -549,78 +447,7 @@ async function handleLogin() {
   }
 }
 
-function handleGoogleCredentialResponse(response) {
-  return verifyGoogleLogin(response?.credential || '');
-}
 
-async function verifyGoogleLogin(credential) {
-  if (!credential) {
-    showToast('Nao foi possivel obter credencial do Google.', 'error');
-    return false;
-  }
-
-  let authUrl = getGoogleAuthUrl();
-  if (!authUrl) {
-    window.SR_OSVALDO_AI_ENDPOINT = DEFAULT_AI_ENDPOINT;
-    safeStorageSet('sr_osvaldo_ai_endpoint', DEFAULT_AI_ENDPOINT);
-    authUrl = `${DEFAULT_AI_ENDPOINT}/api/auth/google`;
-  }
-
-  try {
-    const response = await fetch(authUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || data?.message || 'Falha ao validar login Google.');
-    }
-
-    setLoggedInUser(data.user || {});
-    document.getElementById('loginGate').classList.add('hidden');
-    showToast(`Bem-vindo, ${data.user?.name || data.user?.email || 'usuário'}!`, 'success');
-    return true;
-  } catch (error) {
-    console.error('Google login error:', error);
-    showToast(String(error?.message || 'Falha no login Google.'), 'error');
-    return false;
-  }
-}
-
-function initGoogleIdentity() {
-  if (!window.google?.accounts?.id) return false;
-  updateGoogleOriginDiagnosticsHint();
-  if (!isGoogleLoginConfigured()) return false;
-
-  try {
-    window.google.accounts.id.initialize({
-      client_id: getGoogleClientId(),
-      callback: handleGoogleCredentialResponse,
-    });
-
-    const container = document.getElementById('googleSignInButton');
-    if (container && !window.__srOsvaldoGoogleButtonRendered) {
-      const width = Math.max(220, Math.min(360, container.clientWidth || 360));
-      container.innerHTML = '';
-      window.google.accounts.id.renderButton(container, {
-        type: 'standard',
-        theme: 'outline',
-        size: 'large',
-        text: 'continue_with',
-        shape: 'rectangular',
-        width,
-      });
-      window.__srOsvaldoGoogleButtonRendered = true;
-    }
-
-    window.__srOsvaldoGoogleReady = true;
-    return true;
-  } catch (error) {
-    console.error('Google Identity init error:', error);
-    return false;
-  }
-}
 
 function classifyAiServiceError(message = '') {
   const msg = String(message || '');
@@ -1168,11 +995,12 @@ Schema obrigatorio:
   }]
 }
 
-Regras:
 - No minimo 5 itens em goodFeedback e 5 em badFeedback.
 - No minimo 12 items em improvements.
 - Exatamente 5 especialistas na lista specialists.
-- No minimo 15 vagas em recommendedJobs, relevantes ao perfil e com diversidade (CLT, freelance, remoto, internacional).
+- No minimo 10 vagas em recommendedJobs, com foco em alta aderencia. 
+- Diversidade obrigatoria: Inclua pelo menos 3 vagas internacionais (Remoto Global) e 2 Freelance/Projetos. 
+- "matchExplanation": Campo obrigatorio em cada vaga explicando exatamente por que o candidato e bom para ela. 
 - Nao usar "Candidato" no nome.
 - O texto deve refletir o curriculo e a consistencia com LinkedIn.
 
@@ -1704,7 +1532,6 @@ async function renderJobs() {
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <span class="job-full-source">via ${job.source}</span>
           <div class="job-match">
             <div class="job-match-circle ${mc}">${job.match}%</div>
             <span class="job-match-label">match</span>
@@ -1715,9 +1542,15 @@ async function renderJobs() {
       <div class="job-full-body">
         <div class="job-full-meta">
           <span>📍 ${job.location}</span>
-          <span>💰 ${job.salary}</span>
-          <span>🕒 ${job.posted}</span>
+          <span style="color:var(--primary-600);font-weight:700">💰 ${job.salary}</span>
+          <span class="job-full-source">via ${job.source}</span>
         </div>
+        
+        <div style="background:var(--primary-50); padding:14px; border-radius:12px; margin-bottom:16px; border-left:4px solid var(--primary-500)">
+          <div style="font-size:0.75rem; font-weight:800; text-transform:uppercase; color:var(--primary-700); margin-bottom:4px">🎯 Por que os agentes escolheram esta vaga:</div>
+          <div style="font-size:0.88rem; color:var(--text-secondary); line-height:1.4">${job.matchExplanation || 'Esta vaga tem alta aderência técnica com seu perfil atual.'}</div>
+        </div>
+
         <div class="job-full-tags">
           ${job.tags.map(t => {
             const isMatch = profileSkills.includes(t.toLowerCase());
@@ -1728,17 +1561,16 @@ async function renderJobs() {
       </div>
 
       <!-- Carta de Apresentação -->
-      <div class="job-full-letter">
-        <div class="job-full-letter-title">💌 Carta de Apresentação (gerada automaticamente)</div>
-        <div class="job-full-letter-text" id="letter-${job.id}">${escHtml(letter)}</div>
+      <div class="job-full-letter" style="background:var(--bg-main); border:1px dashed var(--primary-300)">
+        <div class="job-full-letter-title" style="color:var(--primary-700)">✨ CARTA DE APRESENTAÇÃO PERSONALIZADA</div>
+        <div class="job-full-letter-text" id="letter-${job.id}" style="font-style:italic">${escHtml(letter)}</div>
       </div>
 
       ${applied
         ? `<div class="job-full-applied">✅ Candidatura enviada em ${AppState.applications.find(a=>a.jobId===job.id)?.date}</div>`
         : `<div class="job-full-actions">
-            <a href="${job.url}" target="_blank" class="job-full-link">🔗 Ver Vaga em ${job.source}</a>
-            <button class="btn btn-secondary btn-sm" onclick="copyLetter(${job.id})">📋 Copiar Carta</button>
-            <button class="btn btn-primary btn-sm" onclick="applyToJob(${job.id})">🚀 Candidatar-se</button>
+            <a href="${job.url}" target="_blank" class="job-full-link" style="background:var(--gray-900); color:white">🌐 Ver Vaga e Candidatar</a>
+            <button class="btn btn-secondary btn-sm" onclick="copyLetter(${job.id})">📋 Copiar Carta IA</button>
           </div>`
       }
     </div>`;
@@ -1888,19 +1720,12 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLogin();
   initDropzone();
   updateApiStatus();
-  // Initialize Firebase (if the page is configured for it) and prefer Firebase Google sign-in when available.
   if (isFirebaseConfigured()) {
     initFirebaseIfNeeded();
-    initFirebaseGoogleIdentity();
   }
 
-  // Load server config first (may set Google Client ID). If config obtained, init Google (only when Firebase is not used); otherwise disable Google login to avoid fallback.
-  loadServerConfig().then((ok) => {
-    if (ok) {
-      if (!isFirebaseConfigured()) initGoogleIdentity();
-    } else {
-      updateGoogleLoginHint('Login Google desativado: Client ID nao disponivel no servidor. Configure o Worker ou atualize SR_OSVALDO_GOOGLE_CLIENT_ID.', 'error');
-    }
+  // Load server config and restore IA status
+  loadServerConfig().then(() => {
     restoreAndValidateSavedApiKey();
   });
   window.addEventListener('scroll', () => document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20));
