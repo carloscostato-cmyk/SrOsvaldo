@@ -254,7 +254,7 @@ async function hashPassword(password, saltHex, iterations = 100000) {
     {
       name: 'PBKDF2',
       salt: hexToBytes(saltHex),
-      iterations,
+      iterations: Math.min(iterations, 100000),
       hash: 'SHA-256',
     },
     key,

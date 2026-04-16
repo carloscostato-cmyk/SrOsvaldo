@@ -237,7 +237,7 @@ async function deriveKeyBase64(password, saltBase64, iterations = 100000) {
   const enc = new TextEncoder();
   const pwKey = await crypto.subtle.importKey('raw', enc.encode(String(password)), { name: 'PBKDF2' }, false, ['deriveBits']);
   const salt = _base64ToUint8Array(saltBase64);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, pwKey, 256);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: Math.min(iterations, 100000), hash: 'SHA-256' }, pwKey, 256);
   return _bytesToBase64(derivedBits);
 }
 
