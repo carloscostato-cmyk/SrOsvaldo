@@ -233,11 +233,11 @@ function generateSaltBase64(len = 16) {
   return _bytesToBase64(arr);
 }
 
-async function deriveKeyBase64(password, saltBase64, iterations = 100000) {
+async function deriveKeyBase64(password, saltBase64, iterations = 80000) {
   const enc = new TextEncoder();
   const pwKey = await crypto.subtle.importKey('raw', enc.encode(String(password)), { name: 'PBKDF2' }, false, ['deriveBits']);
   const salt = _base64ToUint8Array(saltBase64);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: Math.min(iterations, 100000), hash: 'SHA-256' }, pwKey, 256);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: Math.min(iterations, 80000), hash: 'SHA-256' }, pwKey, 256);
   return _bytesToBase64(derivedBits);
 }
 
@@ -258,8 +258,8 @@ async function createLocalUser(name, email, password) {
   const users = _getLocalUsers();
   if (users[key]) throw new Error('Já existe uma conta local com esse e-mail neste navegador.');
   const salt = generateSaltBase64(16);
-  const hash = await deriveKeyBase64(password, salt, 100000);
-  users[key] = { name: String(name || '').trim(), email: key, salt, hash, iterations: 100000, createdAt: new Date().toISOString(), provider: 'local' };
+  const hash = await deriveKeyBase64(password, salt, 80000);
+  users[key] = { name: String(name || '').trim(), email: key, salt, hash, iterations: 80000, createdAt: new Date().toISOString(), provider: 'local' };
   _saveLocalUsers(users);
   return users[key];
 }
@@ -270,7 +270,7 @@ async function verifyLocalUser(email, password) {
   const users = _getLocalUsers();
   const u = users[key];
   if (!u) return null;
-  const derived = await deriveKeyBase64(password, u.salt, u.iterations || 100000);
+  const derived = await deriveKeyBase64(password, u.salt, u.iterations || 80000);
   if (derived === u.hash) return u;
   return null;
 }

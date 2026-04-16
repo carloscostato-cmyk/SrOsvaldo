@@ -242,7 +242,7 @@ function randomHex(byteLength = 16) {
   return bytesToHex(bytes);
 }
 
-async function hashPassword(password, saltHex, iterations = 100000) {
+async function hashPassword(password, saltHex, iterations = 80000) {
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -254,7 +254,7 @@ async function hashPassword(password, saltHex, iterations = 100000) {
     {
       name: 'PBKDF2',
       salt: hexToBytes(saltHex),
-      iterations: Math.min(iterations, 100000),
+      iterations: Math.min(iterations, 80000),
       hash: 'SHA-256',
     },
     key,
@@ -265,7 +265,7 @@ async function hashPassword(password, saltHex, iterations = 100000) {
 
 async function verifyPassword(password, record) {
   if (!record?.hash || !record?.salt) return false;
-  const derivedHash = await hashPassword(password, record.salt, Number(record.iterations || 100000));
+  const derivedHash = await hashPassword(password, record.salt, Number(record.iterations || 80000));
   return constantTimeEqual(String(derivedHash), String(record.hash));
 }
 
@@ -523,7 +523,7 @@ export default {
         }
 
         const salt = randomHex(16);
-        const iterations = 100000;
+        const iterations = 80000;
         const hash = await hashPassword(password, salt, iterations);
         const record = {
           email,
